@@ -1,1 +1,2959 @@
-REPLACE_WITH_ACTUAL_FULL_HTML_FROM_LOCAL_FILE
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Event Planner</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <style>
+        body { font-family: 'Inter', system_ui, sans-serif; }
+        .font-display { font-family: 'Space Grotesk', 'Inter', sans-serif; font-weight: 600; }
+        .event-card { transition: all 0.2s cubic-bezier(0.4, 0.0, 0.2, 1); }
+        .message-textarea { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: 0.875rem; line-height: 1.5; }
+        .status-badge { font-size: 0.65rem; padding: 1px 9px; border-radius: 9999px; font-weight: 600; }
+        .toast { animation: toast-pop 0.25s ease forwards; }
+        @keyframes toast-pop { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+        .xls-dropzone { transition: all 0.2s ease; }
+        .xls-dropzone.dragover { background-color: #eff6ff; border-color: #3b82f6; }
+        table { border-collapse: separate; border-spacing: 0; table-layout: fixed; }
+        .data-table th, .data-table td { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .data-table th { position: sticky; top: 0; background: white; z-index: 10; }
+        
+        /* Column Resizer Styles */
+        .data-table th {
+            position: relative;
+        }
+        .data-table th.no-resize {
+            cursor: default !important;
+        }
+        .data-table th .resizer {
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: 5px;
+            height: 100%;
+            background: transparent;
+            cursor: col-resize;
+            user-select: none;
+            z-index: 20;
+        }
+        .data-table th .resizer:hover,
+        .data-table th .resizer.resizing {
+            background: #3b82f6;
+            opacity: 0.3;
+        }
+    </style>
+</head>
+<body class="bg-slate-50">
+    <!-- Header -->
+    <div class="bg-white border-b border-slate-200 sticky top-0 z-50">
+        <div class="w-full px-[10px] py-4">
+            <div class="flex items-center justify-between gap-4">
+                <!-- Left: Logo + Title -->
+                <div class="flex items-center gap-x-4 flex-shrink-0">
+                    <div class="w-10 h-10 bg-blue-600 rounded-2xl flex items-center justify-center">
+                        <i class="fa-solid fa-calendar text-white text-2xl"></i>
+                    </div>
+                    <div>
+                        <h1 id="app-title" class="font-display text-2xl font-semibold tracking-tighter text-slate-900">Event Planner</h1>
+                    </div>
+                </div>
+
+                <!-- Center: Drag & Drop (centered, ~50% width) -->
+                <div id="header-dropzone" class="flex-1 max-w-[50%] mx-4">
+                    <div id="xls-dropzone" class="border-2 border-dashed border-slate-300 hover:border-blue-400 rounded-2xl px-6 py-2 text-center cursor-pointer bg-white text-sm">
+                        <div class="flex items-center justify-center gap-x-2">
+                            <i class="fa-solid fa-file-excel text-blue-500"></i>
+                            <span class="font-medium text-slate-700">Drag &amp; Drop SpreadSheet</span>
+                        </div>
+                        <input type="file" id="xls-file-input" accept=".xls,.xlsx" class="hidden">
+                    </div>
+                </div>
+
+                <!-- Right: Controls -->
+                <div class="flex items-center gap-x-3 flex-shrink-0">
+                    <!-- Technician Selector -->
+                    <div class="flex items-center gap-x-1.5 bg-white border border-slate-200 rounded-2xl px-3 py-1 text-sm min-w-[160px]">
+                        <span class="text-xs text-slate-500 font-medium">Technician:</span>
+                        <select id="tech-select" onchange="setCurrentTechnician(this.value)" class="bg-transparent text-sm font-medium outline-none pr-1 w-full"></select>
+                    </div>
+
+                    <div class="flex items-center bg-slate-100 rounded-2xl p-1 text-sm">
+                        <button onclick="importMasterHistoryJSON()" class="px-4 py-1.5 hover:bg-white rounded-[14px] flex items-center gap-x-2 text-slate-700 font-medium text-xs">
+                            <i class="fa-solid fa-upload fa-sm"></i>
+                            <span>Load JSON</span>
+                        </button>
+                        <button onclick="exportMasterHistoryJSON()" class="px-4 py-1.5 hover:bg-white rounded-[14px] flex items-center gap-x-2 text-slate-700 font-medium text-xs">
+                            <i class="fa-solid fa-download fa-sm"></i>
+                            <span>Backup JSON</span>
+                        </button>
+                        <button onclick="exportMasterCSV()" class="px-4 py-1.5 hover:bg-white rounded-[14px] flex items-center gap-x-2 text-slate-700 font-medium text-xs border-l border-slate-300 ml-1 pl-3">
+                            <i class="fa-solid fa-file-csv fa-sm"></i>
+                            <span>Export CSV</span>
+                        </button>
+                    </div>
+                    
+                    <!-- SETUP BUTTON -->
+                    <button onclick="openSettingsModal()" class="px-4 py-2 text-xs font-medium bg-slate-800 hover:bg-black text-white rounded-2xl flex items-center gap-x-2">
+                        <i class="fa-solid fa-cog fa-sm"></i>
+                        <span>Setup</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="w-full px-[10px] py-6">
+        
+        <!-- Stats moved to header -->
+        <!-- Stats moved into filters row -->
+
+        <!-- Filters + Stats -->
+        <div class="flex items-center justify-between mb-4">
+            <div class="flex items-center gap-x-2">
+                <!-- Search first (left) -->
+                <div class="relative w-72">
+                    <i class="fa-solid fa-search absolute left-4 top-3 text-slate-400 text-sm"></i>
+                    <input type="text" id="search-input" placeholder="Search by Res ID, Booking ID, event, organizer..." class="w-full pl-10 pr-4 py-2.5 text-sm bg-white border border-slate-200 focus:border-blue-300 rounded-2xl outline-none">
+                </div>
+
+                <!-- Filters after search -->
+                <div class="bg-white border border-slate-200 rounded-2xl p-1 flex text-sm font-medium">
+                    <button onclick="filterEvents('all')" id="filter-all" class="px-5 py-1.5 rounded-[14px] bg-blue-600 text-white">All</button>
+                    <button onclick="filterEvents('inprogress')" id="filter-inprogress" class="px-5 py-1.5 rounded-[14px] text-slate-600 hover:bg-slate-100">In Progress</button>
+                    <button onclick="filterEvents('completed')" id="filter-completed" class="px-5 py-1.5 rounded-[14px] text-slate-600 hover:bg-slate-100">Completed</button>
+                    <button onclick="filterEvents('flagged')" id="filter-flagged" class="px-5 py-1.5 rounded-[14px] text-amber-600 hover:bg-amber-50">Flagged</button>
+                    <button onclick="filterEvents('canceled')" id="filter-canceled" class="px-5 py-1.5 rounded-[14px] text-red-600 hover:bg-red-50">Canceled</button>
+                </div>
+            </div>
+
+            <!-- Stats / Counters (right justified) -->
+            <div id="stats-bar" class="text-xs bg-white border border-slate-200 rounded-2xl px-4 h-9 flex items-center gap-x-4 text-slate-600 font-mono">
+                <span><span id="total-events">0</span> reservations</span>
+                <span class="text-slate-300">|</span>
+                <span><span id="total-bookings">0</span> bookings</span>
+                <span class="text-slate-300">|</span>
+                <span><span id="pending-count">0</span> pending</span>
+                <span class="text-slate-300">|</span>
+                <span><span id="completed-count">0</span> completed</span>
+                <span class="text-slate-300">|</span>
+                <span class="text-amber-600"><span id="flagged-count">0</span> flagged</span>
+            </div>
+            
+            <!-- Top action buttons removed per user request -->
+        </div>
+
+        <!-- Events Table -->
+        <div class="bg-white border border-slate-200 rounded-3xl shadow-sm overflow-x-auto">
+            <table class="w-full text-sm data-table" style="table-layout: fixed;">
+                <thead class="bg-slate-50 text-xs text-slate-500 font-medium">
+                    <tr>
+                        <th class="px-1 py-3 w-8 no-resize text-center"></th>
+                        <th onclick="sortTable('reservationId')" class="px-4 py-3 text-left w-24 font-mono cursor-pointer hover:bg-slate-100">Res ID <i class="fa-solid fa-sort fa-xs ml-1"></i></th>
+                        <th onclick="sortTable('date')" class="px-4 py-3 text-left w-44 cursor-pointer hover:bg-slate-100">Date / Date Range <i class="fa-solid fa-sort fa-xs ml-1"></i></th>
+                        <th onclick="sortTable('bookingId')" class="px-4 py-3 text-left w-36 font-mono cursor-pointer hover:bg-slate-100">Booking ID(s) <i class="fa-solid fa-sort fa-xs ml-1"></i></th>
+                        <th onclick="sortTable('eventName')" class="px-4 py-3 text-left w-80 cursor-pointer hover:bg-slate-100">Event <i class="fa-solid fa-sort fa-xs ml-1"></i></th>
+                        <th onclick="sortTable('campus')" class="px-4 py-3 text-center w-20 cursor-pointer hover:bg-slate-100">Campus <i class="fa-solid fa-sort fa-xs ml-1"></i></th>
+                        <th onclick="sortTable('rooms')" class="px-4 py-3 text-left w-32 min-w-[120px] cursor-pointer hover:bg-slate-100">Rooms <i class="fa-solid fa-sort fa-xs ml-1"></i></th>
+                        <th onclick="sortTable('organizer')" class="px-4 py-3 text-left w-48 min-w-[160px] cursor-pointer hover:bg-slate-100">Organizer <i class="fa-solid fa-sort fa-xs ml-1"></i></th>
+                        <th onclick="sortTable('eventStatus')" class="px-4 py-3 text-center w-24 cursor-pointer hover:bg-slate-100">Status <i class="fa-solid fa-sort fa-xs ml-1"></i></th>
+                        <th onclick="sortTable('flagged')" class="px-4 py-3 text-center w-40 cursor-pointer hover:bg-slate-100">Flagged <i class="fa-solid fa-sort fa-xs ml-1"></i></th>
+                        <th class="px-4 py-3 text-center w-40 no-resize">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="events-tbody" class="divide-y divide-slate-100 text-sm">
+                    <!-- JS populated -->
+                </tbody>
+            </table>
+        </div>
+        
+    </div>
+
+    <div id="toast-container" class="fixed bottom-6 right-6 z-[100]"></div>
+
+    <!-- Checklist Modal -->
+    <div id="checklist-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[200]">
+        <div class="bg-white rounded-3xl shadow-xl w-full max-w-lg mx-4 max-h-[85vh] flex flex-col">
+            <div class="px-6 py-4 border-b flex items-center justify-between">
+                <div>
+                    <h3 id="checklist-event-name" class="font-semibold text-lg"></h3>
+                    <p id="checklist-event-date" class="text-xs text-slate-500"></p>
+                </div>
+                <button onclick="closeChecklistModal()" class="text-slate-400 hover:text-slate-600 text-2xl leading-none">&times;</button>
+            </div>
+
+            <div id="checklist-content" class="flex-1 overflow-auto p-6 space-y-6 text-sm">
+                <!-- Populated by JS -->
+            </div>
+
+            <div class="px-6 py-4 border-t flex justify-between items-center bg-slate-50 rounded-b-3xl">
+                <button onclick="resetCurrentChecklist()" class="px-4 py-2 text-xs font-medium text-red-600 hover:bg-red-50 rounded-2xl flex items-center gap-x-2">
+                    <i class="fa-solid fa-undo"></i>
+                    <span>Reset Checklist</span>
+                </button>
+                <button onclick="closeChecklistModal()" class="px-5 py-2 bg-slate-800 hover:bg-black text-white text-sm font-semibold rounded-2xl">
+                    Done
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let masterEvents = [];
+        let currentFilter = 'all';
+        let currentSearch = '';
+
+        function loadFromLocalStorage() {
+            const saved = localStorage.getItem('av_event_planner_v1');
+            if (saved) {
+                try { 
+                    masterEvents = JSON.parse(saved); 
+                    // Normalize old events to prevent crashes on new properties
+                    masterEvents.forEach(ev => {
+                        if (!ev.children) ev.children = [];
+                        if (typeof ev.progress !== 'number') ev.progress = 0;
+                        if (!ev.eventStatus) ev.eventStatus = ev.status || 'Pending';
+                        if (typeof ev.completed !== 'boolean') ev.completed = false;
+                        if (typeof ev.flagged !== 'boolean') ev.flagged = false;
+                        if (!ev.bookingIds && ev.bookingId) ev.bookingIds = [ev.bookingId];
+                        if (!ev.reservationIds && ev.reservationId) ev.reservationIds = [ev.reservationId];
+                        
+                        // Normalize children flags (support both old flagReason and new flagLabel/flagDetail)
+                        if (ev.children && Array.isArray(ev.children)) {
+                            ev.children.forEach(c => {
+                                if (typeof c.flagged !== 'boolean') c.flagged = false;
+                                if (!c.flagLabel && c.flagReason) c.flagLabel = c.flagReason;
+                                if (!c.flagDetail && c.flagReason) c.flagDetail = c.flagReason;
+                                if (!c.flagLabel) c.flagLabel = '';
+                                if (!c.flagDetail) c.flagDetail = '';
+                            });
+                        }
+                    });
+                } catch(e) { 
+                    console.error('Failed to load localStorage data:', e);
+                    masterEvents = []; 
+                }
+            }
+        }
+        function saveToLocalStorage() {
+            localStorage.setItem('av_event_planner_v1', JSON.stringify(masterEvents));
+        }
+
+        function getFirstName(fullName) {
+            if (!fullName) return "Organizer";
+            fullName = fullName.trim();
+            if (fullName.includes(',')) {
+                const parts = fullName.split(',');
+                return parts.length > 1 ? parts[1].trim().split(' ')[0] : fullName;
+            }
+            return fullName.split(' ')[0];
+        }
+
+        /**
+         * Resolve organizer name with the exact priority the user requested:
+         * 1. 1st Contact (contactName) - but only if it is not "(none)" and not blank
+         * 2. Requestor (requestor) as fallback
+         */
+        function getOrganizerName(ev) {
+            if (!ev) return '';
+
+            const contact = (ev.contactName || '').toString().trim();
+            const requestor = (ev.requestor || '').toString().trim();
+
+            // Priority 1: 1st Contact (column L), but skip if "(none)" or empty
+            if (contact && contact.toLowerCase() !== '(none)') {
+                return contact;
+            }
+
+            // Priority 2: Requestor (column N)
+            if (requestor && requestor.toLowerCase() !== '(none)') {
+                return requestor;
+            }
+
+            return '';
+        }
+
+        function getCleanEmail(val) {
+            if (!val) return '';
+            const cleaned = val.toString().trim();
+            const lower = cleaned.toLowerCase();
+            if (!cleaned || lower === '(none)' || lower === 'none' || lower === 'n/a' || lower === '-') {
+                return '';
+            }
+            // Must look like an email (contain @)
+            if (!cleaned.includes('@')) {
+                return '';
+            }
+            return cleaned;
+        }
+
+        /**
+         * Get the color for a campus/location.
+         * Looks up user-defined color from Setup, falls back to a nice default.
+         */
+        function getCampusColor(campus) {
+            if (!campus) return '#64748b'; // slate gray
+
+            const locations = appSettings.locations || [];
+            for (const loc of locations) {
+                const name = typeof loc === 'string' ? loc : loc.name;
+                if (name === campus) {
+                    return (typeof loc === 'string' ? '#6366f1' : loc.color) || '#6366f1';
+                }
+            }
+            // Unknown location - use a pleasant default
+            return '#6366f1';
+        }
+
+        // getCampus removed - campus is now fully controlled by Room Rules in Setup
+        function normalizeEventName(name) {
+            return (name || '').toLowerCase().replace(/\s+/g, ' ').replace(/[^\w\s]/g, '').trim();
+        }
+
+        // Reliable YYYY-MM-DD key from any date input (string, Date, Excel serial)
+        function getDateKey(dateInput) {
+            if (!dateInput) return '';
+            
+            let d = null;
+            
+            if (dateInput instanceof Date) {
+                d = dateInput;
+            } else if (typeof dateInput === 'number') {
+                // Excel serial date number
+                d = new Date(Math.round((dateInput - 25569) * 86400 * 1000));
+            } else {
+                const str = String(dateInput).trim();
+                
+                // Already YYYY-MM-DD
+                const isoMatch = str.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+                if (isoMatch) {
+                    return str; // already clean
+                }
+                
+                // Try MM/DD/YYYY or similar
+                const parts = str.split(/[-/\s]/);
+                if (parts.length >= 3) {
+                    let year, month, day;
+                    if (parts[0].length === 4) {
+                        [year, month, day] = parts;
+                    } else {
+                        [month, day, year] = parts;
+                    }
+                    const y = parseInt(year, 10);
+                    const m = parseInt(month, 10);
+                    const da = parseInt(day, 10);
+                    if (y && m && da) {
+                        return `${y}-${String(m).padStart(2, '0')}-${String(da).padStart(2, '0')}`;
+                    }
+                }
+                
+                // Last resort: let JS parse it
+                d = new Date(str);
+            }
+            
+            if (!d || isNaN(d.getTime())) return '';
+            
+            const year = d.getFullYear();
+            const month = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        }
+
+        function formatDateNice(dateStr) {
+            if (!dateStr) return 'Invalid date';
+            
+            let d = null;
+            
+            // If it looks like YYYY-MM-DD, parse it manually as LOCAL date (prevents UTC midnight shift)
+            const isoMatch = dateStr.toString().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+            if (isoMatch) {
+                const year = parseInt(isoMatch[1], 10);
+                const month = parseInt(isoMatch[2], 10) - 1;
+                const day = parseInt(isoMatch[3], 10);
+                d = new Date(year, month, day);
+            } else {
+                // Try normal parse first
+                d = new Date(dateStr);
+                
+                // Fallback manual parser for MM/DD/YYYY etc.
+                if (isNaN(d.getTime())) {
+                    const parts = dateStr.toString().split(/[-/]/);
+                    if (parts.length === 3) {
+                        let year, month, day;
+                        if (parts[0].length === 4) {
+                            [year, month, day] = parts;
+                        } else {
+                            [month, day, year] = parts;
+                        }
+                        d = new Date(parseInt(year, 10), parseInt(month, 10) - 1, parseInt(day, 10));
+                    }
+                }
+            }
+            
+            if (!d || isNaN(d.getTime())) return 'Invalid date';
+            
+            return d.toLocaleDateString('en-US', { 
+                weekday: 'short', 
+                month: 'short', 
+                day: 'numeric',
+                year: 'numeric' 
+            });
+        }
+
+        function getDateRangeForEvent(ev) {
+            if (!ev.children || ev.children.length === 0) {
+                return formatDateNice(ev.date);
+            }
+            const dates = ev.children
+                .map(c => c.date || c.bookingDate)
+                .filter(Boolean)
+                .map(d => {
+                    // Normalize to Date object
+                    if (d instanceof Date) return d;
+                    const key = getDateKey(d);
+                    if (!key) return null;
+                    const [y, m, da] = key.split('-').map(Number);
+                    return new Date(y, m - 1, da);
+                })
+                .filter(Boolean);
+
+            if (dates.length === 0) return formatDateNice(ev.date);
+
+            const minDate = new Date(Math.min(...dates.map(d => d.getTime())));
+            const maxDate = new Date(Math.max(...dates.map(d => d.getTime())));
+
+            if (minDate.getTime() === maxDate.getTime()) {
+                return formatDateNice(minDate);
+            }
+
+            const minStr = minDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            const maxStr = maxDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+            return `${minStr} – ${maxStr}`;
+        }
+
+        function showToast(message, type = 'success') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            toast.className = `toast flex items-center gap-x-3 px-5 py-3 rounded-2xl shadow-lg text-sm font-medium mb-2 ${type === 'success' ? 'bg-emerald-600 text-white' : 'bg-amber-600 text-white'}`;
+            toast.innerHTML = `<i class="fa-solid ${type === 'success' ? 'fa-check-circle' : 'fa-exclamation-triangle'}"></i> <span>${message}</span>`;
+            container.appendChild(toast);
+            setTimeout(() => { toast.style.transition = 'all 0.2s'; toast.style.opacity = '0'; setTimeout(() => toast.remove(), 200); }, 2400);
+        }
+
+        function getExistingEventByReservationId(resId) {
+            return masterEvents.find(ev => ev.reservationIds && ev.reservationIds.includes(String(resId)));
+        }
+
+        /**
+         * Create a stable key for matching events across uploads.
+         * Uses primary Reservation ID + clean date + normalized time window.
+         */
+        function makeStableKey(reservationId, dateKey, startTime, endTime) {
+            const normalizeTime = t => (t || '').toString().trim().toUpperCase().replace(/\s+/g, '');
+            const timeKey = `${normalizeTime(startTime)}-${normalizeTime(endTime)}`;
+            return `${reservationId || 'nores'}|${dateKey}|${timeKey}`;
+        }
+
+        function mergeNewXLSRows(newRows) {
+            let added = 0, updated = 0, flagged = 0, skipped = 0;
+
+            // === Step 1: Build a fast lookup map from the NEW XLS using Booking ID as the key ===
+            const newBookingMap = new Map();
+            newRows.forEach(row => {
+                if (row.bookingId) {
+                    newBookingMap.set(String(row.bookingId), row);
+                }
+            });
+
+            // === Step 2: Process each existing event and check its children by Booking ID ===
+            masterEvents.forEach(existing => {
+                if (!existing.children || existing.children.length === 0) return;
+
+                let eventChanged = false;
+                let changeReasons = [];
+
+                existing.children.forEach(child => {
+                    const bookingId = String(child.bookingId || '');
+                    if (!bookingId || !newBookingMap.has(bookingId)) return;
+
+                    const newRow = newBookingMap.get(bookingId);
+                    const oldChild = { ...child };
+
+                    // Compare key fields for this specific booking
+                    const changesForThisBooking = [];
+
+                    const newDateKey = getDateKey(newRow.bookingDate);
+                    const childDateKey = getDateKey(child.date || child.bookingDate || '');
+                    if (newDateKey && newDateKey !== childDateKey) {
+                        changesForThisBooking.push(`Date changed to ${newDateKey}`);
+                        child.date = newDateKey;
+                    }
+
+                    const norm = t => (t || '').toString().trim().toUpperCase().replace(/\s+/g, '');
+                    if (norm(newRow.startTime) !== norm(child.startTime) || norm(newRow.endTime) !== norm(child.endTime)) {
+                        changesForThisBooking.push(`Time changed from ${child.startTime}–${child.endTime} to ${newRow.startTime}–${newRow.endTime}`);
+                        child.startTime = newRow.startTime;
+                        child.endTime = newRow.endTime;
+                    }
+
+                    const normRoom = s => (s || '').toString().trim().toUpperCase();
+                    if (newRow.roomCode && normRoom(newRow.roomCode) !== normRoom(child.roomCode)) {
+                        changesForThisBooking.push(`Room changed from ${child.roomCode || '—'} to ${newRow.roomCode}`);
+                        child.roomCode = newRow.roomCode;
+                    }
+
+                    const normStatus = s => (s || '').toString().trim();
+                    if (newRow.status && normStatus(newRow.status) !== normStatus(child.status)) {
+                        if (newRow.status.toLowerCase().includes('cancel')) {
+                            changesForThisBooking.push(`Status changed to Canceled`);
+                        } else {
+                            changesForThisBooking.push(`Status changed from ${child.status || '—'} to ${newRow.status}`);
+                        }
+                        child.status = newRow.status;
+                    }
+
+                    // NOTE: We no longer compare eventName at the child level here.
+                    // Event name changes are handled at the parent level only (see below).
+
+                    if (changesForThisBooking.length > 0) {
+                        eventChanged = true;
+                        changeReasons.push(`Booking ${bookingId}: ${changesForThisBooking.join('; ')}`);
+                        
+                        // Update the child record AND attach specific flag to this booking
+                        child.startTime = newRow.startTime || child.startTime;
+                        child.endTime = newRow.endTime || child.endTime;
+                        child.roomCode = newRow.roomCode || child.roomCode;
+                        child.flagged = true;
+                        
+                        // Create simple label + detailed message for tooltip
+                        const simpleLabels = changesForThisBooking.map(c => {
+                            if (c.toLowerCase().includes('time')) return 'Time Changed';
+                            if (c.toLowerCase().includes('room')) return 'Room Changed';
+                            if (c.toLowerCase().includes('status')) return 'Status Changed';
+                            if (c.toLowerCase().includes('date')) return 'Date Changed';
+                            return 'Data Changed';
+                        });
+                        child.flagLabel = [...new Set(simpleLabels)].join(', ');
+                        child.flagDetail = changesForThisBooking.join('\n');
+                    } else {
+                        // No change detected for this booking — clear any old flag
+                        if (child.flagged) {
+                            child.flagged = false;
+                            child.flagLabel = '';
+                            child.flagDetail = '';
+                        }
+                    }
+                });
+
+                // Event name changes are intentionally NOT checked here to avoid false positives on re-import.
+                // If an event name truly changes in the source system, it will be treated as a new reservation
+                // or the user can manually review via the "Reviewed" button after a real change is detected.
+
+                if (eventChanged) {
+                    existing.flagged = true;
+                    existing.flagReason = changeReasons.join(' | ');
+                    existing.completed = false;
+                    
+                    if (!existing.changes) existing.changes = [];
+                    existing.changes.push({
+                        timestamp: new Date().toISOString(),
+                        reason: existing.flagReason,
+                        source: 'XLS re-upload'
+                    });
+
+                    flagged++;
+                    updated++;
+                } else {
+                    // No changes detected for any child of this reservation.
+                    // Aggressively clear ALL flags on children and parent to prevent stale flags.
+                    existing.children.forEach(c => {
+                        c.flagged = false;
+                        c.flagReason = '';
+                    });
+                    existing.flagged = false;
+                    existing.flagReason = '';
+                    skipped++;
+                }
+            });
+
+            // === Step 3: Add completely new events — Group purely by Reservation ID ===
+            const existingResIds = new Set();
+            masterEvents.forEach(ev => {
+                if (ev.reservationIds) ev.reservationIds.forEach(id => existingResIds.add(String(id)));
+                if (ev.reservationId) existingResIds.add(String(ev.reservationId));
+            });
+
+            const newResGroups = new Map();
+
+            newRows.forEach(row => {
+                const resId = String(row.reservationId || '');
+                if (!resId) return; // skip rows without Reservation ID
+
+                if (existingResIds.has(resId)) {
+                    // Existing reservation — will be handled by Booking ID change detection above
+                    return;
+                }
+
+                if (!newResGroups.has(resId)) {
+                    newResGroups.set(resId, {
+                        eventName: row.eventName,
+                        reservationId: resId,
+                        contactName: row.contactName,
+                        contactEmail: row.contactEmail,
+                        requestor: row.requestor,
+                        requestorEmail: row.requestorEmail,
+                        buildingCode: row.buildingCode || '',
+                        status: row.status || '',
+                        children: []
+                    });
+                }
+                const g = newResGroups.get(resId);
+                g.children.push({
+                    bookingId: row.bookingId || '',
+                    roomCode: row.roomCode || '',
+                    startTime: row.startTime || '',
+                    endTime: row.endTime || '',
+                    bookingDate: row.bookingDate,
+                    date: getDateKey(row.bookingDate), // normalized for display
+                    eventStatus: row.status || 'Confirmed',
+                    status: row.status || '',
+                    eventName: row.eventName || ''
+                });
+            });
+
+            newResGroups.forEach((g) => {
+                // Sort children by date then room
+                g.children.sort((a, b) => {
+                    const dateA = getDateKey(a.bookingDate) || '';
+                    const dateB = getDateKey(b.bookingDate) || '';
+                    if (dateA !== dateB) return dateA.localeCompare(dateB);
+                    return (a.roomCode || '').localeCompare(b.roomCode || '');
+                });
+
+                const allRooms = [...new Set(g.children.map(c => c.roomCode).filter(Boolean))].sort();
+                // Campus is now determined by Room Rules in Setup (no more auto-detection)
+
+                // Earliest and latest date for parent display
+                const dates = g.children.map(c => getDateKey(c.bookingDate)).filter(Boolean).sort();
+                const earliestDate = dates[0] || '';
+                const latestDate = dates[dates.length - 1] || earliestDate;
+
+                const newEvent = {
+                    id: 'ev_' + Date.now() + Math.random().toString(36).slice(2, 8),
+                    eventName: g.eventName,
+                    reservationId: g.reservationId,
+                    reservationIds: [g.reservationId],
+                    date: earliestDate,
+                    startTime: g.children[0]?.startTime || '',
+                    endTime: g.children[g.children.length-1]?.endTime || '',
+                    rooms: allRooms,
+                    buildingCode: g.buildingCode || '',
+                    status: g.status || '',
+                    contactName: g.contactName,
+                    contactEmail: g.contactEmail,
+                    requestor: g.requestor,
+                    requestorEmail: g.requestorEmail,
+                    bookingIds: g.children.map(c => c.bookingId).filter(Boolean),
+                    bookingId: g.children.map(c => c.bookingId).filter(Boolean).join(', '),
+                    firstName: getFirstName(g.contactName || g.requestor),
+                    completed: false,
+                    flagged: false,
+                    flagReason: '',
+                    addedDate: new Date().toISOString(),
+                    children: g.children,
+                    expanded: false,
+                    changes: [],
+                    emailSent: false,
+                    icsDownloaded: false,
+                    checklistCompleted: false
+                };
+
+                // Cancellation: only if ALL child bookings are canceled
+                const allChildrenCanceled = newEvent.children.length > 0 &&
+                    newEvent.children.every(c => String(c.status || '').toLowerCase().includes('cancel'));
+                newEvent.eventStatus = allChildrenCanceled ? '*Canceled' : (g.status || 'Confirmed');
+
+                // Apply user's Room Rules to assign campus (if any rules match)
+                applyRoomRulesToNewEvent(newEvent);
+
+                masterEvents.push(newEvent);
+                added++;
+            });
+
+            saveToLocalStorage();
+            return { added, updated, flagged, skipped };
+        }
+
+        function renderEvents(filtered) {
+            const tbody = document.getElementById('events-tbody');
+            tbody.innerHTML = '';
+
+            if (filtered.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="11" class="px-6 py-12 text-center text-slate-400"><i class="fa-solid fa-inbox text-3xl mb-3 block"></i>No matching events.</td></tr>`;
+                return;
+            }
+
+            filtered.forEach((event) => {
+                const globalIdx = masterEvents.findIndex(e => e.id === event.id);
+
+                // Clean status (remove leading asterisk)
+                function cleanStatus(s) {
+                    if (!s) return 'Pending';
+                    return String(s).replace(/^\*/, '').trim();
+                }
+
+                // Determine parent Event Status
+                let parentEventStatus = 'Pending';
+                let isCanceled = false;
+
+                if (event.children && event.children.length > 0) {
+                    const childStatuses = event.children.map(c => cleanStatus(c.eventStatus || c.status || 'Pending'));
+                    const uniqueStatuses = [...new Set(childStatuses)];
+
+                    // Only mark the whole reservation as Canceled if EVERY child booking is Canceled
+                    const allCanceled = childStatuses.length > 0 && childStatuses.every(s => s.toLowerCase() === 'canceled');
+
+                    if (allCanceled) {
+                        parentEventStatus = 'Canceled';
+                        isCanceled = true;
+                    } else {
+                        parentEventStatus = uniqueStatuses.join(' / ');
+                        isCanceled = false;
+                    }
+                } else {
+                    parentEventStatus = cleanStatus(event.eventStatus || event.status || 'Pending');
+                    isCanceled = parentEventStatus.toLowerCase() === 'canceled';
+                }
+
+                let rowClass = 'hover:bg-slate-50';
+                if (isCanceled) {
+                    rowClass += ' bg-red-50';
+                } else if (event.flagged) {
+                    rowClass += ' bg-amber-50';
+                } else if ((event.progress || 0) === 100 || event.completed) {
+                    rowClass += ' bg-slate-200 opacity-80';
+                }
+                if (event.completed) rowClass += ' opacity-70';
+
+                const row = document.createElement('tr');
+                row.className = rowClass;
+
+                let statusHTML = '';
+                if (event.completed) {
+                    statusHTML = `<span class="status-badge bg-emerald-100 text-emerald-700">Completed</span>`;
+                } else if (isCanceled) {
+                    statusHTML = `<span class="status-badge bg-red-100 text-red-700">Canceled</span>`;
+                } else {
+                    statusHTML = `<span class="status-badge bg-slate-100 text-slate-600">${parentEventStatus}</span>`;
+                }
+
+                const roomsText = event.rooms && event.rooms.length ? event.rooms.join(', ') : '—';
+
+                const checklistDone = isEventFullyCompleted(event);
+                const emailDone = !!event.emailSent;
+                const icsDone = !!event.icsDownloaded;
+                const allDone = emailDone && icsDone && checklistDone;
+                const isFullyCompleted = event.completed || allDone;
+
+                const isGrouped = event.children && event.children.length > 1;
+                const bookingDisplay = isGrouped ? '—' : (event.bookingId || '—');
+                const roomsDisplay = isGrouped ? '—' : roomsText;
+
+                row.innerHTML = `
+                    <td class="px-2 py-3 text-center">
+                        ${isGrouped 
+                            ? `<button onclick="toggleExpand(${globalIdx}, this)" class="px-1.5 py-1 text-slate-500 hover:text-slate-700" title="${event.expanded ? 'Collapse child bookings' : 'Expand to see individual Booking IDs'}">
+                                 <i class="fa-solid ${event.expanded ? 'fa-chevron-up' : 'fa-chevron-down'} fa-sm"></i>
+                               </button>` 
+                            : `<span class="text-slate-300">—</span>`}
+                    </td>
+                    <td class="px-4 py-3 font-mono text-xs text-slate-500">${event.reservationIds && event.reservationIds.length ? event.reservationIds[0] : '—'}</td>
+                    <td class="px-4 py-3 text-xs text-slate-600 font-mono">
+  ${event.children && event.children.length > 1 
+    ? getDateRangeForEvent(event) 
+    : formatDateNice(event.date)}<br>
+  ${event.children && event.children.length > 1 
+    ? `<span class="text-[10px] text-slate-400 italic">Multiple times (expand to view)</span>` 
+    : `<span class="text-[10px] text-slate-400">${event.startTime || ''}${event.endTime ? ' – ' + event.endTime : ''}</span>`}
+</td>
+                    <td class="px-4 py-3 font-mono text-xs text-slate-500">${bookingDisplay}</td>
+                    <td class="px-4 py-3 font-medium text-slate-800">${event.eventName}</td>
+                    <td class="px-4 py-3 text-center">
+                        <span class="inline-block px-2 py-0.5 text-[10px] font-bold rounded" 
+                              style="${event.campus ? `background-color: ${getCampusColor(event.campus)}20; color: ${getCampusColor(event.campus)}; border: 1px solid ${getCampusColor(event.campus)}` : 'background-color: #e2e8f0; color: #64748b;'}">
+                            ${event.campus || '—'}
+                        </span>
+                    </td>
+                    <td class="px-4 py-3"><span class="font-mono text-xs bg-slate-100 px-2 py-0.5 rounded">${roomsDisplay}</span></td>
+                    <td class="px-4 py-3 text-xs text-slate-600">${event.requestor || '—'}<br><span class="text-[10px] text-slate-400">${event.requestorEmail || ''}</span></td>
+                    <td class="px-4 py-3 text-center">${statusHTML}</td>
+                    <td class="px-4 py-3 text-center">
+                        ${event.flagged 
+                            ? `<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700">Event Changed</span>` 
+                            : `<span class="text-slate-300 text-xs">—</span>`}
+                    </td>
+                    <td class="px-4 py-3 text-right">
+                        <div class="flex justify-end gap-x-1.5 text-xs">
+                            ${isFullyCompleted 
+                                ? `<button onclick="resetEvent(${globalIdx})" class="px-3 py-1 bg-amber-100 hover:bg-amber-200 text-amber-700 rounded-xl flex items-center gap-x-1 text-xs" title="Reset"><i class="fa-solid fa-undo fa-xs"></i><span>Reset</span></button>`
+                                : `
+                                    ${(!icsDone && !(event.children && new Set(event.children.map(c => c.date)).size > 1)) ? `<button onclick="downloadICS(${globalIdx})" class="px-2.5 py-1 border border-slate-300 hover:bg-slate-50 text-slate-600 rounded-xl" title="ICS"><i class="fa-solid fa-calendar-plus fa-sm"></i></button>` : ''}
+                                    ${!emailDone ? `<button onclick="sendEmail(${globalIdx})" class="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-xl" title="Email this reservation"><i class="fa-solid fa-envelope fa-sm"></i></button>` : ''}
+                                    <button onclick="copyNoteToClipboard(${globalIdx}, this)" 
+                                            class="px-2.5 py-1 border border-slate-300 hover:bg-slate-50 text-slate-600 rounded-xl flex items-center gap-x-1 text-xs"
+                                            title="Copy note for ticket">
+                                        <i class="fa-solid fa-clipboard fa-xs"></i>
+                                    </button>
+                                    ${!checklistDone ? `<button onclick="openChecklistModal(${globalIdx})" class="px-2.5 py-1 border border-indigo-300 hover:bg-indigo-50 text-indigo-600 rounded-xl" title="Checklist"><i class="fa-solid fa-tasks fa-sm"></i></button>` : ''}
+                                    <button onclick="markEventCompleted(${globalIdx}, this)" class="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl" title="Mark as completed"><i class="fa-solid fa-check fa-xs"></i></button>
+                                `
+                            }
+                        </div>
+                    </td>`;
+
+                tbody.appendChild(row);
+
+                // Render child booking rows grouped by Date + Time (with expandable Date/Time groups)
+                // Always build dateGroups when parent is expanded (even if only 1 date group)
+                if (event.expanded && event.children && event.children.length > 0) {
+                    // Build dateGroups if not already present (persistent expansion state)
+                    if (!event.dateGroups) {
+                        const timeGroups = {};
+                        event.children.forEach((child, originalIdx) => {
+                            const d = child.date || child.bookingDate || '';
+                            const s = child.startTime || '';
+                            const e = child.endTime || '';
+                            const key = `${d}|${s}|${e}`;
+                            if (!timeGroups[key]) {
+                                timeGroups[key] = { 
+                                    key: key,
+                                    date: d, 
+                                    start: s, 
+                                    end: e, 
+                                    children: [],
+                                    expanded: false   // second-level expansion
+                                };
+                            }
+                            timeGroups[key].children.push({ child, originalIdx });
+                        });
+
+                        // Sort groups by date then start time
+                        event.dateGroups = Object.values(timeGroups).sort((a, b) => {
+                            if (a.date !== b.date) return a.date.localeCompare(b.date);
+                            return (a.start || '').localeCompare(b.start || '');
+                        });
+                    }
+
+                    event.dateGroups.forEach((group, groupIdx) => {
+                        const groupDateNice = formatDateNice(group.date);
+                        const groupTime = group.start && group.end ? `${group.start} – ${group.end}` : '';
+                        
+                        const hasMultipleBookingsInGroup = group.children.length > 1;
+
+                        // For grouped date rows with multiple bookings, hide actual IDs/rooms
+                        let groupBookingIdsDisplay = '—';
+                        let groupRoomsDisplay = '—';
+                        
+                        if (hasMultipleBookingsInGroup) {
+                            groupBookingIdsDisplay = '—';
+                            groupRoomsDisplay = 'multiple rooms (expand to view)';
+                        } else {
+                            // Single booking in this date/time slot → show actual values
+                            groupBookingIdsDisplay = group.children[0]?.child?.bookingId || '—';
+                            groupRoomsDisplay = group.children[0]?.child?.roomCode || '—';
+                        }
+
+                        // === Date/Time Group Row (expandable, like a mini-parent) ===
+                        const groupRow = document.createElement('tr');
+                        groupRow.className = 'bg-indigo-50 text-xs border-l-2 border-indigo-400';
+                        
+                        const expandIcon = group.expanded ? 'fa-chevron-up' : 'fa-chevron-down';
+                        const expandTitle = group.expanded ? 'Collapse individual bookings' : 'Expand to see individual bookings';
+
+                        groupRow.innerHTML = `
+                            <td class="px-2 py-1.5 text-center">
+                                ${hasMultipleBookingsInGroup 
+                                    ? `<button onclick="toggleDateGroupExpand(${globalIdx}, ${groupIdx}, this)" 
+                                              class="px-1 py-0.5 text-indigo-600 hover:text-indigo-800" 
+                                              title="${expandTitle}">
+                                          <i class="fa-solid ${expandIcon} fa-sm"></i>
+                                       </button>`
+                                    : `<span class="text-slate-300">—</span>`
+                                }
+                            </td>
+                            <td class="px-4 py-1.5 font-mono text-xs text-slate-400"></td>
+                            <td class="px-4 py-2 text-xs text-slate-600 font-mono">
+                                ${groupDateNice}<br>
+                                <span class="text-[10px] text-slate-500">${groupTime}</span>
+                            </td>
+                            <td class="px-4 py-1.5 font-mono text-xs text-slate-500">${groupBookingIdsDisplay}</td>
+                            <td class="px-4 py-1.5 text-xs text-slate-500">—</td>
+                            <td class="px-4 py-1.5 text-center">
+                                <span class="inline-block px-2 py-0.5 text-[10px] font-bold rounded" 
+                                      style="${event.campus ? `background-color: ${getCampusColor(event.campus)}20; color: ${getCampusColor(event.campus)}; border: 1px solid ${getCampusColor(event.campus)}` : 'background-color: #e2e8f0; color: #64748b;'}">
+                                    ${event.campus || '—'}
+                                </span>
+                            </td>
+                            <td class="px-4 py-1.5 text-xs text-slate-500">${groupRoomsDisplay}</td>
+                            <td class="px-4 py-1.5 text-xs text-slate-600">&nbsp;</td>
+                            <td class="px-4 py-1.5 text-center">
+                                <span class="status-badge bg-slate-100 text-slate-600 text-[10px]">${cleanStatus(event.eventStatus || 'Confirmed')}</span>
+                            </td>
+                            <td class="px-4 py-1.5 text-center">
+                                ${(() => {
+                                    // For Date/Time group header: show "Event Changed" only as a summary if the group has flagged children
+                                    if (hasMultipleBookingsInGroup) {
+                                        const hasAnyFlaggedChild = group.children.some(gc => gc.child && gc.child.flagged);
+                                        if (hasAnyFlaggedChild) {
+                                            return `<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-100 text-amber-700">Event Changed</span>`;
+                                        }
+                                        return `<span class="text-slate-300 text-xs">—</span>`;
+                                    }
+                                    
+                                    // Single booking in this date/time group → show the child's specific flag(s)
+                                    const singleChild = group.children[0]?.child;
+                                    if (singleChild && singleChild.flagged && singleChild.flagLabel) {
+                                        const labels = singleChild.flagLabel.split(',').map(l => l.trim()).filter(Boolean);
+                                        const pills = labels.map(label => {
+                                            const onclick = `event.stopImmediatePropagation(); clearFlagOnChild(${globalIdx}, '${singleChild.bookingId}', '${label}');`;
+                                            return `<span onclick="${onclick}" class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-100 text-amber-700 cursor-pointer hover:bg-amber-200 mr-1 mb-0.5" title="${singleChild.flagDetail || ''}">${label}</span>`;
+                                        }).join('');
+                                        return pills || `<span class="text-slate-300 text-xs">—</span>`;
+                                    }
+                                    return `<span class="text-slate-300 text-xs">—</span>`;
+                                })()}
+                            </td>
+                            <td class="px-4 py-1.5 text-left">
+                                <div class="flex justify-end gap-x-1.5 text-xs">
+                                    <button onclick="downloadGroupICS(${globalIdx}, '${group.date}', '${group.start}', '${group.end}', this)" 
+                                            class="px-2.5 py-1 border border-slate-300 hover:bg-slate-50 text-slate-600 rounded-xl" 
+                                            title="Download ICS for this date/time (includes all rooms)">
+                                        <i class="fa-solid fa-calendar-plus fa-sm"></i>
+                                    </button>
+                                    <button onclick="sendEmail(${globalIdx})" 
+                                            class="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-xl" 
+                                            title="Email this reservation">
+                                        <i class="fa-solid fa-envelope fa-sm"></i>
+                                    </button>
+                                </div>
+                            </td>
+                        `;
+                        tbody.appendChild(groupRow);
+
+                        // === Individual child booking rows (only shown when this Date/Time group is expanded AND has multiple bookings) ===
+                        if (group.expanded && hasMultipleBookingsInGroup) {
+                            group.children.forEach(({ child, originalIdx }) => {
+                                const childRow = document.createElement('tr');
+                                childRow.className = 'bg-white text-xs border-l-2 border-indigo-200';
+                                const childRooms = child.roomCode ? child.roomCode : '—';
+                                const childStart = child.startTime || '';
+                                const childEnd = child.endTime || '';
+                                const childTime = childStart && childEnd ? `${childStart} – ${childEnd}` : '—';
+
+                                const childStatus = cleanStatus(child.eventStatus || child.status || 'Confirmed');
+                                const childIsCanceled = childStatus.toLowerCase().includes('cancel');
+                                let childStatusHTML = childIsCanceled 
+                                    ? `<span class="status-badge bg-red-100 text-red-700 text-[10px]">${childStatus}</span>` 
+                                    : `<span class="status-badge bg-slate-100 text-slate-600 text-[10px]">${childStatus}</span>`;
+
+                                let childFlaggedHTML = `<span class="text-slate-300 text-xs">—</span>`;
+                                if (child.flagged && child.flagLabel) {
+                                    const labels = child.flagLabel.split(',').map(l => l.trim()).filter(Boolean);
+                                    const pills = labels.map(label => {
+                                        const onclick = `event.stopImmediatePropagation(); clearFlagOnChild(${globalIdx}, '${child.bookingId}', '${label}');`;
+                                        return `<span onclick="${onclick}" class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-100 text-amber-700 cursor-pointer hover:bg-amber-200 mr-1 mb-0.5" title="${child.flagDetail || ''}">${label}</span>`;
+                                    }).join('');
+                                    childFlaggedHTML = pills || `<span class="text-slate-300 text-xs">—</span>`;
+                                }
+
+                                childRow.innerHTML = `
+                                    <td class="px-2 py-1.5 text-center"><span class="text-slate-300">—</span></td>
+                                    <td class="px-4 py-1.5 font-mono text-xs text-slate-400"></td>
+                                    <td class="px-4 py-1.5 text-xs text-slate-500">${childTime}</td>
+                                    <td class="px-4 py-1.5 font-mono text-xs font-semibold text-indigo-700">${child.bookingId || '—'}</td>
+                                    <td class="px-4 py-1.5 text-xs text-slate-500">↳ Individual booking</td>
+                                    <td class="px-4 py-1.5 text-center">
+                                        <span class="inline-block px-2 py-0.5 text-[10px] font-bold rounded" 
+                                              style="${child.campus ? `background-color: ${getCampusColor(child.campus)}20; color: ${getCampusColor(child.campus)}; border: 1px solid ${getCampusColor(child.campus)}` : 'background-color: #e2e8f0; color: #64748b;'}">
+                                            ${child.campus || '—'}
+                                        </span>
+                                    </td>
+                                    <td class="px-4 py-1.5"><span class="font-mono text-xs bg-white px-2 py-0.5 rounded border border-slate-200">${childRooms}</span></td>
+                                    <td class="px-4 py-1.5 text-xs text-slate-600">&nbsp;</td>
+                                    <td class="px-4 py-1.5 text-center">${childStatusHTML}</td>
+                                    <td class="px-4 py-1.5 text-center">${childFlaggedHTML}</td>
+                                `;
+                                tbody.appendChild(childRow);
+                            });
+                        }
+                    });
+                }
+            });
+
+            attachCheckboxListeners();
+            // Re-initialize column resizer after table is rendered
+            setTimeout(() => {
+                initColumnResizer();
+            }, 50);
+        }
+
+        function attachCheckboxListeners() {
+            document.querySelectorAll('.event-checkbox').forEach(cb => {
+                cb.onchange = function() {
+                    const ev = masterEvents.find(e => e.id === this.dataset.id);
+                    if (ev) {
+                        ev.completed = this.checked;
+                        if (this.checked) ev.flagged = false;
+                        saveToLocalStorage();
+                        updateStats();
+                        applyFilters();
+                    }
+                };
+            });
+        }
+
+        // ============================================
+        // Column Resizer (Draggable column widths)
+        // ============================================
+        function initColumnResizer() {
+            const table = document.querySelector('.data-table');
+            if (!table) return;
+
+            const headers = table.querySelectorAll('thead th');
+            if (!headers.length) return;
+
+            // Load saved widths from localStorage
+            const savedWidths = JSON.parse(localStorage.getItem('avTracker_columnWidths') || '{}');
+
+            headers.forEach((th, index) => {
+                // First column (expand arrow) - fixed narrow width
+                if (index === 0) {
+                    th.style.width = '32px';
+                    th.style.minWidth = '32px';
+                    th.style.maxWidth = '32px';
+                    return;
+                }
+
+                // Last column (Actions) - fixed width
+                if (index === headers.length - 1) {
+                    th.style.width = '200px';
+                    th.style.minWidth = '200px';
+                    th.style.maxWidth = '200px';
+                    return;
+                }
+
+                // Skip resizer for any other marked columns
+                if (th.classList.contains('no-resize')) {
+                    return;
+                }
+
+                // Restore saved width if exists
+                if (savedWidths[index]) {
+                    th.style.width = savedWidths[index] + 'px';
+                }
+
+                // Create resize handle if it doesn't exist
+                let resizer = th.querySelector('.resizer');
+                if (!resizer) {
+                    resizer = document.createElement('div');
+                    resizer.className = 'resizer';
+                    th.appendChild(resizer);
+                }
+
+                let startX, startWidth;
+
+                const onMouseMove = (e) => {
+                    const newWidth = startWidth + (e.pageX - startX);
+                    if (newWidth > 40) { // Minimum width
+                        th.style.width = newWidth + 'px';
+                    }
+                };
+
+                const onMouseUp = () => {
+                    document.removeEventListener('mousemove', onMouseMove);
+                    document.removeEventListener('mouseup', onMouseUp);
+                    resizer.classList.remove('resizing');
+
+                    // Save all current widths
+                    const widths = {};
+                    headers.forEach((header, i) => {
+                        widths[i] = header.offsetWidth;
+                    });
+                    localStorage.setItem('avTracker_columnWidths', JSON.stringify(widths));
+                };
+
+                resizer.addEventListener('mousedown', (e) => {
+                    e.preventDefault();
+                    startX = e.pageX;
+                    startWidth = th.offsetWidth;
+                    resizer.classList.add('resizing');
+
+                    document.addEventListener('mousemove', onMouseMove);
+                    document.addEventListener('mouseup', onMouseUp);
+                });
+            });
+        }
+
+        function updateStats() {
+            const totalReservations = masterEvents.length;
+
+            // Count total individual bookings (children)
+            let totalBookings = 0;
+            masterEvents.forEach(ev => {
+                if (ev.children && ev.children.length > 0) {
+                    totalBookings += ev.children.length;
+                } else {
+                    totalBookings += 1; // treat parent as 1 booking if no children
+                }
+            });
+
+            const comp = masterEvents.filter(e => e.completed).length;
+            const pend = totalReservations - comp;
+            const flag = masterEvents.filter(e => e.flagged).length;
+
+            const setText = (id, val) => {
+                const el = document.getElementById(id);
+                if (el) el.textContent = val;
+            };
+            setText('total-events', totalReservations);
+            setText('total-bookings', totalBookings);
+            setText('pending-count', pend);
+            setText('completed-count', comp);
+            setText('flagged-count', flag);
+
+            // Update label from "events" to "reservations"
+            const eventsLabel = document.querySelector('#stats-bar span:first-child');
+            if (eventsLabel) {
+                eventsLabel.innerHTML = `<span id="total-events">${totalReservations}</span> reservations`;
+            }
+
+            const bar = document.getElementById('stats-bar');
+            bar.classList.toggle('hidden', totalReservations === 0);
+            bar.classList.toggle('flex', totalReservations > 0);
+        }
+
+        function toggleExpand(globalIdx, btn) {
+            const ev = masterEvents[globalIdx];
+            if (!ev) return;
+            
+            ev.expanded = !ev.expanded;
+            
+            // Update icon immediately for responsiveness
+            const icon = btn.querySelector('i');
+            if (icon) {
+                icon.classList.toggle('fa-chevron-down', !ev.expanded);
+                icon.classList.toggle('fa-chevron-up', ev.expanded);
+            }
+            
+            // Re-render the table to show/hide child rows
+            applyFilters();
+            
+            // Optional: persist expand state (lightweight)
+            saveToLocalStorage();
+        }
+
+        // Toggle expansion of a specific Date/Time group (second-level expansion)
+        function toggleDateGroupExpand(globalIdx, groupIdx, btn) {
+            const ev = masterEvents[globalIdx];
+            if (!ev || !ev.dateGroups || !ev.dateGroups[groupIdx]) return;
+
+            ev.dateGroups[groupIdx].expanded = !ev.dateGroups[groupIdx].expanded;
+
+            // Update icon immediately
+            const icon = btn.querySelector('i');
+            if (icon) {
+                icon.classList.toggle('fa-chevron-down', !ev.dateGroups[groupIdx].expanded);
+                icon.classList.toggle('fa-chevron-up', ev.dateGroups[groupIdx].expanded);
+            }
+
+            // Re-render table
+            applyFilters();
+            saveToLocalStorage();
+        }
+
+        function searchByReservationId(resId) {
+            if (!resId) return;
+            const searchInput = document.getElementById('search-input');
+            if (searchInput) {
+                searchInput.value = resId;
+                currentSearch = resId;
+                applyFilters();
+            }
+        }
+
+        function applyFilters() {
+            let f = [...masterEvents];
+            if (currentFilter === 'inprogress') {
+                f = f.filter(e => !e.completed && (e.progress || 0) < 100 && !String(e.eventStatus || e.status || '').toLowerCase().includes('cancel'));
+            } else if (currentFilter === 'completed') {
+                f = f.filter(e => e.completed || (e.progress || 0) === 100);
+            } else if (currentFilter === 'canceled') {
+                // Only show reservations where ALL child bookings are canceled
+                f = f.filter(e => {
+                    const clean = (s) => String(s || '').replace(/^\*/, '').trim().toLowerCase();
+                    if (e.children && e.children.length > 0) {
+                        const childStatuses = e.children.map(c => clean(c.eventStatus || c.status));
+                        return childStatuses.length > 0 && childStatuses.every(s => s === 'canceled');
+                    }
+                    return clean(e.eventStatus || e.status) === 'canceled';
+                });
+            } else if (currentFilter === 'flagged') {
+                f = f.filter(e => e.flagged === true);
+            }
+            // 'all' shows everything
+
+            const term = currentSearch.toLowerCase();
+            if (term) {
+                f = f.filter(e => {
+                    const resIds = (e.reservationIds || (e.reservationId ? [e.reservationId] : []));
+                    const resMatch = resIds.some(id => String(id).toLowerCase().includes(term));
+                    const bookMatch = (e.bookingId || '').toString().toLowerCase().includes(term) ||
+                                      (e.bookingIds || []).some(id => String(id).toLowerCase().includes(term));
+                    return resMatch ||
+                           bookMatch ||
+                           e.eventName.toLowerCase().includes(term) ||
+                           (e.requestor || '').toLowerCase().includes(term) ||
+                           (e.rooms || []).join(' ').toLowerCase().includes(term);
+                });
+            }
+            renderEvents(f);
+        }
+
+        function filterEvents(type) {
+            currentFilter = type;
+            document.querySelectorAll('[id^="filter-"]').forEach(b => b.classList.remove('bg-blue-600','text-white'));
+            const active = document.getElementById('filter-' + type);
+            if (active) active.classList.add('bg-blue-600','text-white');
+            applyFilters();
+        }
+
+        // Unified email function - used by both parent and child buttons
+        function sendEmail(globalIdx, childIdx = null) {
+            const ev = masterEvents[globalIdx];
+            if (!ev) return;
+
+            let targetEv = ev;
+
+            // If a specific child booking is requested, create a slimmed view
+            if (childIdx !== null && ev.children && ev.children[childIdx]) {
+                const child = ev.children[childIdx];
+                targetEv = {
+                    ...ev,
+                    date: child.bookingDate || child.date || ev.date,
+                    startTime: child.startTime || '',
+                    endTime: child.endTime || '',
+                    rooms: child.roomCode ? [child.roomCode] : [],
+                    eventName: child.eventName || ev.eventName
+                };
+            }
+
+            const greetingName = getFirstName(getOrganizerName(targetEv)) || 'Organizer';
+
+            let toEmail = getCleanEmail(targetEv.contactEmail) || getCleanEmail(targetEv.requestorEmail) || '';
+
+            const ccList = getCCListForEvent(targetEv);
+            const body = buildEmailBody(targetEv);
+
+            const subject = `AV Support: ${targetEv.eventName}`;
+
+            let mailto = 'mailto:' + encodeURIComponent(toEmail || '');
+            mailto += '?cc=' + encodeURIComponent(ccList.join(','));
+            mailto += '&subject=' + encodeURIComponent(subject);
+            mailto += '&body=' + encodeURIComponent(body);
+
+            try {
+                window.open(mailto, '_blank');
+            } catch (e) {
+                alert('Could not open email client.');
+            }
+        }
+
+        // (cleaned up remaining orphaned legacy email code)
+
+        // Generate and download .ics file for one event
+        function downloadICS(idx) {
+            const ev = masterEvents[idx];
+            if (!ev) return;
+
+            const startTimeStr = ev.startTime || '08:00';
+            const endTimeStr = ev.endTime || '17:00';
+
+            // Format as YYYYMMDDTHHMMSS (local time) - handles "1:00 PM" format
+            function formatDateTime(dateStr, timeStr) {
+                try {
+                    let d;
+                    // Parse YYYY-MM-DD as LOCAL date to avoid UTC shift
+                    const isoMatch = dateStr.toString().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+                    if (isoMatch) {
+                        d = new Date(parseInt(isoMatch[1],10), parseInt(isoMatch[2],10)-1, parseInt(isoMatch[3],10));
+                    } else {
+                        d = new Date(dateStr);
+                    }
+                    if (!timeStr) return `${d.getFullYear()}${(d.getMonth()+1).toString().padStart(2,'0')}${d.getDate().toString().padStart(2,'0')}T080000`;
+
+                    let [timePart, period] = timeStr.split(' ');
+                    let [hoursStr, minutesStr] = timePart.split(':');
+                    let hours = parseInt(hoursStr, 10);
+                    let minutes = parseInt(minutesStr || '0', 10);
+
+                    // Convert 12-hour to 24-hour
+                    if (period) {
+                        period = period.toUpperCase();
+                        if (period === 'PM' && hours < 12) hours += 12;
+                        if (period === 'AM' && hours === 12) hours = 0;
+                    }
+
+                    const year = d.getFullYear();
+                    const month = String(d.getMonth() + 1).padStart(2, '0');
+                    const day = String(d.getDate()).padStart(2, '0');
+                    const h = String(hours).padStart(2, '0');
+                    const m = String(minutes).padStart(2, '0');
+
+                    return `${year}${month}${day}T${h}${m}00`;
+                } catch (e) {
+                    return '20260101T080000';
+                }
+            }
+
+            const dtstart = formatDateTime(ev.date, startTimeStr);
+            const dtend = formatDateTime(ev.date, endTimeStr);
+
+            // Build campus-aware title (no hardcoded fallback)
+            const summary = ev.campus 
+                ? `${ev.campus} - AV Support - ${ev.eventName}` 
+                : `AV Support - ${ev.eventName}`;
+
+            const location = (ev.rooms && ev.rooms.length) ? ev.rooms.join(', ') : 'Conference Center';
+            
+            // DESCRIPTION for ICS:
+            // - Reservation ID(s) first
+            // - Then the organizer's name (requestor) on the next line
+            // Clean format with no attendees or organizer (best for shared calendar import)
+            const resIds = (ev.reservationIds && ev.reservationIds.length) ? ev.reservationIds.join(', ') : '—';
+            const description = `Reservation ID(s): ${resIds}\\n${ev.requestor || ''}`;
+
+            // Build ICS content with proper structure
+            const icsLines = [
+                'BEGIN:VCALENDAR',
+                'VERSION:2.0',
+                'PRODID:-//AV Event Planner//ICS//EN',
+                'CALSCALE:GREGORIAN',
+                'METHOD:PUBLISH',
+                'BEGIN:VEVENT',
+                `UID:av-${ev.id}@av-event-planner.app`,
+                `DTSTAMP:${new Date().toISOString().replace(/[-:]/g, '').split('.')[0]}Z`,
+                `DTSTART:${dtstart}`,
+                `DTEND:${dtend}`,
+                `SUMMARY:${summary}`,
+                `DESCRIPTION:${description}`,
+                `LOCATION:${location}`,
+                'STATUS:TENTATIVE',
+                'X-MICROSOFT-CDO-BUSYSTATUS:TENTATIVE',
+                'CATEGORIES:Event',
+                'TRANSP:OPAQUE'
+            ];
+
+            // Clean ICS for shared calendar import (no attendees, no organizer)
+
+            // Add reminder
+            icsLines.push('BEGIN:VALARM');
+            icsLines.push('ACTION:DISPLAY');
+            icsLines.push('DESCRIPTION:AV Support Reminder - 30 minutes before');
+            icsLines.push('TRIGGER:-PT30M');
+            icsLines.push('END:VALARM');
+            icsLines.push('END:VEVENT');
+            icsLines.push('END:VCALENDAR');
+
+            const icsContent = icsLines.join('\r\n');
+
+            const blob = new Blob([icsContent], { type: 'text/calendar;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `AV_${(ev.eventName || 'event').replace(/[^a-z0-9]/gi, '_').substring(0,50)}_${ev.date}.ics`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+            
+            // Mark as downloaded
+            ev.icsDownloaded = true;
+            saveToLocalStorage();
+            applyFilters();
+        }
+
+        // ==================== CHECKLIST SYSTEM ====================
+        const CHECKLIST_STRUCTURE = {
+            "TrackIT ticket": [
+                "Download PDF",
+                "Add ticket note", 
+                "Add location to ticket",
+                "Close ticket"
+            ],
+            "Import ICS to calendar": [
+                "Upload PDF",
+                "Verify Date/Time",
+                "Verify Assigned technicians",
+                "Verify Location"
+            ],
+            "Email Organizer": [
+                "Verify To email address",
+                "Verify event title",
+                "Verify/adjust technician arrival time",
+                "Call out non-standard technology requests"
+            ]
+        };
+
+        let currentChecklistEventIndex = null;
+
+        function getChecklistState(event) {
+            if (!event.checklistState) {
+                event.checklistState = {};
+                // Initialize structure
+                Object.keys(CHECKLIST_STRUCTURE).forEach(parent => {
+                    event.checklistState[parent] = {
+                        completed: false,
+                        items: {}
+                    };
+                    CHECKLIST_STRUCTURE[parent].forEach(item => {
+                        event.checklistState[parent].items[item] = false;
+                    });
+                });
+            }
+            return event.checklistState;
+        }
+
+        function openChecklistModal(globalIdx) {
+            const ev = masterEvents[globalIdx];
+            if (!ev) return;
+
+            currentChecklistEventIndex = globalIdx;
+            const state = getChecklistState(ev);
+
+            document.getElementById('checklist-event-name').textContent = ev.eventName;
+            document.getElementById('checklist-event-date').textContent = formatDateNice(ev.date);
+
+            const content = document.getElementById('checklist-content');
+            content.innerHTML = '';
+
+            Object.keys(CHECKLIST_STRUCTURE).forEach(parentKey => {
+                const parentDiv = document.createElement('div');
+                parentDiv.className = 'border border-slate-200 rounded-2xl p-4';
+
+                const parentState = state[parentKey];
+                const allChildrenDone = Object.values(parentState.items).every(v => v === true);
+
+                let html = `
+                    <div class="flex items-center justify-between mb-3">
+                        <div class="flex items-center gap-x-2">
+                            <input type="checkbox" 
+                                   ${parentState.completed || allChildrenDone ? 'checked' : ''} 
+                                   ${allChildrenDone ? 'disabled' : ''}
+                                   onchange="toggleParentChecklist('${parentKey}', this.checked)"
+                                   class="w-4 h-4 accent-indigo-600">
+                            <span class="font-semibold ${parentState.completed || allChildrenDone ? 'line-through text-slate-400' : ''}">${parentKey}</span>
+                        </div>
+                    </div>
+                    <div class="space-y-2 pl-6">
+                `;
+
+                CHECKLIST_STRUCTURE[parentKey].forEach(item => {
+                    const isChecked = parentState.items[item] === true;
+                    if (!isChecked) { // Only show unchecked items
+                        html += `
+                            <label class="flex items-center gap-x-2 text-sm cursor-pointer">
+                                <input type="checkbox" 
+                                       onchange="toggleChecklistItem('${parentKey}', '${item}', this.checked)"
+                                       class="w-3.5 h-3.5 accent-indigo-600">
+                                <span>${item}</span>
+                            </label>
+                        `;
+                    }
+                });
+
+                html += `</div>`;
+                parentDiv.innerHTML = html;
+                content.appendChild(parentDiv);
+            });
+
+            document.getElementById('checklist-modal').classList.remove('hidden');
+            document.getElementById('checklist-modal').classList.add('flex');
+        }
+
+        function toggleChecklistItem(parentKey, item, isChecked) {
+            const ev = masterEvents[currentChecklistEventIndex];
+            if (!ev) return;
+
+            const state = getChecklistState(ev);
+            state[parentKey].items[item] = isChecked;
+
+            // Check if all children are done
+            const allDone = Object.values(state[parentKey].items).every(v => v === true);
+            if (allDone) {
+                state[parentKey].completed = true;
+            }
+
+            saveToLocalStorage();
+            // Refresh modal
+            openChecklistModal(currentChecklistEventIndex);
+        }
+
+        function toggleParentChecklist(parentKey, isChecked) {
+            const ev = masterEvents[currentChecklistEventIndex];
+            if (!ev) return;
+
+            const state = getChecklistState(ev);
+            state[parentKey].completed = isChecked;
+
+            if (isChecked) {
+                // Mark all children as done
+                Object.keys(state[parentKey].items).forEach(key => {
+                    state[parentKey].items[key] = true;
+                });
+            }
+
+            saveToLocalStorage();
+            openChecklistModal(currentChecklistEventIndex);
+        }
+
+        function resetCurrentChecklist() {
+            if (!confirm('Reset this checklist to default?')) return;
+
+            const ev = masterEvents[currentChecklistEventIndex];
+            if (!ev) return;
+
+            delete ev.checklistState; // Reset
+            saveToLocalStorage();
+            openChecklistModal(currentChecklistEventIndex);
+        }
+
+        function closeChecklistModal() {
+            document.getElementById('checklist-modal').classList.add('hidden');
+            document.getElementById('checklist-modal').classList.remove('flex');
+            // Refresh main table to reflect any completion changes
+            applyFilters();
+        }
+
+        // Check if event is fully completed (for greying out)
+        function isEventFullyCompleted(event) {
+            if (!event.checklistState) return false;
+            const state = event.checklistState;
+            return Object.values(state).every(p => p.completed === true);
+        }
+
+        function hasActiveFlags(event) {
+            if (event.flagged) return true;
+            if (event.children && event.children.some(c => c.flagged)) return true;
+            return false;
+        }
+
+        /**
+         * Clear a specific flag from a child booking.
+         */
+        function clearFlagOnChild(eventId, bookingId, labelToRemove = null) {
+            const event = masterEvents.find(e => e.id === eventId);
+            if (!event || !event.children) return;
+
+            const child = event.children.find(c => String(c.bookingId) === String(bookingId));
+            if (!child) return;
+
+            if (labelToRemove && child.flagLabel) {
+                // Remove only the specific label
+                let labels = child.flagLabel.split(',').map(l => l.trim());
+                labels = labels.filter(l => l.toLowerCase() !== labelToRemove.toLowerCase());
+                
+                if (labels.length > 0) {
+                    child.flagLabel = labels.join(', ');
+                    // Keep flagged = true since other flags remain
+                } else {
+                    child.flagged = false;
+                    child.flagLabel = '';
+                    child.flagDetail = '';
+                }
+            } else {
+                // Clear all flags for this child
+                child.flagged = false;
+                child.flagLabel = '';
+                child.flagDetail = '';
+            }
+
+            // If no children are flagged anymore, clear parent flag too
+            const stillHasFlags = event.children.some(c => c.flagged);
+            if (!stillHasFlags) {
+                event.flagged = false;
+                event.flagReason = '';
+            }
+
+            saveToLocalStorage();
+            renderEvents(getFilteredEvents());
+        }
+
+        // Table sorting - supports all columns
+        let currentSort = { column: null, direction: 'asc' };
+
+        function sortTable(column) {
+            if (currentSort.column === column) {
+                currentSort.direction = currentSort.direction === 'asc' ? 'desc' : 'asc';
+            } else {
+                currentSort.column = column;
+                currentSort.direction = 'asc';
+            }
+
+            masterEvents.sort((a, b) => {
+                let valA = '', valB = '';
+
+                switch (column) {
+                    case 'reservationId':
+                        valA = (a.reservationIds && a.reservationIds.length) ? a.reservationIds[0] : '';
+                        valB = (b.reservationIds && b.reservationIds.length) ? b.reservationIds[0] : '';
+                        break;
+                    case 'bookingId':
+                        valA = a.bookingId || '';
+                        valB = b.bookingId || '';
+                        break;
+                    case 'eventName':
+                        valA = (a.eventName || '').toLowerCase();
+                        valB = (b.eventName || '').toLowerCase();
+                        break;
+                    case 'date':
+                        valA = a.date ? new Date(a.date) : new Date(0);
+                        valB = b.date ? new Date(b.date) : new Date(0);
+                        break;
+                    case 'campus':
+                        valA = a.campus || 'Unknown';
+                        valB = b.campus || 'Unknown';
+                        break;
+                    case 'rooms':
+                        valA = (a.rooms && a.rooms.length) ? a.rooms.join(', ').toLowerCase() : '';
+                        valB = (b.rooms && b.rooms.length) ? b.rooms.join(', ').toLowerCase() : '';
+                        break;
+                    case 'organizer':
+                        valA = (a.requestor || '').toLowerCase();
+                        valB = (b.requestor || '').toLowerCase();
+                        break;
+                    case 'status':
+                        valA = a.completed ? 'completed' : (a.flagged ? 'flagged' : 'pending');
+                        valB = b.completed ? 'completed' : (b.flagged ? 'flagged' : 'pending');
+                        break;
+                    default:
+                        return 0;
+                }
+
+                if (valA < valB) return currentSort.direction === 'asc' ? -1 : 1;
+                if (valA > valB) return currentSort.direction === 'asc' ? 1 : -1;
+                return 0;
+            });
+
+            applyFilters();
+        }
+
+        function resetEvent(globalIdx) {
+            const ev = masterEvents[globalIdx];
+            if (!ev) return;
+
+            if (!confirm('Reset this event? It will be unmarked as completed and checklist will be cleared.')) return;
+
+            ev.completed = false;
+            ev.checklistState = null;
+            ev.emailSent = false;
+            ev.icsDownloaded = false;
+            saveToLocalStorage();
+            applyFilters();
+        }
+
+        function markEventCompleted(globalIdx, btn) {
+            const ev = masterEvents[globalIdx];
+            if (!ev) return;
+
+            ev.completed = true;
+            ev.progress = 100;
+            ev.flagged = false;
+            ev.flagReason = '';
+
+            // Clear all flags on children as well
+            if (ev.children && ev.children.length > 0) {
+                ev.children.forEach(c => {
+                    c.flagged = false;
+                    c.flagLabel = '';
+                    c.flagDetail = '';
+                });
+            }
+
+            // Mark checklist as fully completed (so progress shows 100%)
+            if (!ev.checklistState) ev.checklistState = {};
+            // Mark every existing checklist section as completed
+            Object.keys(ev.checklistState).forEach(key => {
+                if (ev.checklistState[key]) {
+                    ev.checklistState[key].completed = true;
+                }
+            });
+            // If no checklist state existed yet, create the three main sections as completed
+            if (Object.keys(ev.checklistState).length === 0) {
+                ['TrackIT ticket', 'Import ICS to calendar', 'Email Organizer'].forEach(key => {
+                    ev.checklistState[key] = { completed: true, items: {} };
+                });
+            }
+
+            // Clear any pending flags on parent and children
+            if (ev.flagged) {
+                ev.flagged = false;
+                ev.flagReason = '';
+            }
+            if (ev.children && Array.isArray(ev.children)) {
+                ev.children.forEach(c => {
+                    c.flagged = false;
+                    c.flagReason = '';
+                });
+            }
+
+            saveToLocalStorage();
+            applyFilters();
+            showToast('Event marked as completed (progress set to 100%)');
+        }
+
+        function flagEvent(idx, reason) {
+            const ev = masterEvents[idx];
+            ev.flagged = true;
+            ev.flagReason = reason;
+            ev.completed = false;
+            saveToLocalStorage();
+            applyFilters();
+            updateStats();
+            showToast(`Flagged as "${reason}"`, 'warning');
+        }
+
+        function markReviewed(idx) {
+            const ev = masterEvents[idx];
+            ev.flagged = false;
+            ev.flagReason = '';
+            
+            // Also clear any per-booking flags on children
+            if (ev.children && Array.isArray(ev.children)) {
+                ev.children.forEach(c => {
+                    c.flagged = false;
+                    c.flagReason = '';
+                });
+            }
+            
+            saveToLocalStorage();
+            applyFilters();
+            updateStats();
+            showToast('Flag cleared');
+        }
+
+        function deleteEvent(idx) {
+            if (!confirm('Delete this event?')) return;
+            masterEvents.splice(idx, 1);
+            saveToLocalStorage();
+            applyFilters();
+            updateStats();
+        }
+
+        function markAllVisibleCompleted() {
+            let count = 0;
+            document.querySelectorAll('#events-tbody .event-checkbox').forEach(cb => {
+                if (!cb.checked) {
+                    const ev = masterEvents.find(e => e.id === cb.dataset.id);
+                    if (ev) { ev.completed = true; ev.flagged = false; cb.checked = true; count++; }
+                }
+            });
+            if (count) { saveToLocalStorage(); updateStats(); showToast(`${count} marked completed`); }
+        }
+
+        async function handleNewXLSUpload(file) {
+            try {
+                const buf = await new Promise((res, rej) => {
+                    const r = new FileReader();
+                    r.onload = e => res(new Uint8Array(e.target.result));
+                    r.onerror = rej;
+                    r.readAsArrayBuffer(file);
+                });
+                const wb = XLSX.read(buf, {type: 'array'});
+                const ws = wb.Sheets[wb.SheetNames[0]];
+                const json = XLSX.utils.sheet_to_json(ws, {header:1, raw:false});
+
+                if (json.length < 2) {
+                    showToast('The file appears to be empty.', 'warning');
+                    return;
+                }
+
+                const headers = json[0].map(h => h ? h.toString().trim() : '');
+                
+                // Robust column detection
+                function findColumnIndex(possibleNames) {
+                    const cleanHeaders = headers.map(h => (h || '').toString().trim().toLowerCase());
+                    
+                    for (let name of possibleNames) {
+                        const lowerName = name.toLowerCase().trim();
+                        // Exact match first (most reliable)
+                        const exactIdx = cleanHeaders.indexOf(lowerName);
+                        if (exactIdx !== -1) return exactIdx;
+                        
+                        // Then contains match
+                        for (let i = 0; i < cleanHeaders.length; i++) {
+                            if (cleanHeaders[i].includes(lowerName) || lowerName.includes(cleanHeaders[i])) {
+                                return i;
+                            }
+                        }
+                    }
+                    return -1;
+                }
+
+                // Updated for new file with Building Code
+                const colReservationId   = findColumnIndex(['Reservation ID']);
+                const colBookingId       = findColumnIndex(['Booking ID', 'BookingID']);
+                const colStatus          = findColumnIndex(['Reservation Status']);
+                const colBuilding        = findColumnIndex(['Building Code']);
+                const colRoom            = findColumnIndex(['Room Code']);
+                const colDate            = findColumnIndex(['Booking Date']);
+                const colDay             = findColumnIndex(['Booking Day Of The Week']);
+                const colStart           = findColumnIndex(['Event Start']);
+                const colEnd             = findColumnIndex(['Event End']);
+                const colEventName       = findColumnIndex(['Booking Event Name']);
+                const colTechSupport     = findColumnIndex(['Tech Support']);
+                const colContact         = findColumnIndex(['1st Contact']);
+                const colContactEmail    = findColumnIndex(['1st Contact Email Address']);
+                const colRequestor       = findColumnIndex(['Requestor']);
+                const colRequestorEmail  = findColumnIndex(['Requestor Email Address']);
+
+                const newRows = json.slice(1)
+                    .filter(r => r && r.length > 3)
+                    .map(row => {
+                        const contactNameVal = colContact >= 0 ? (row[colContact] || '').trim() : '';
+                        const contactEmailVal = colContactEmail >= 0 ? (row[colContactEmail] || '').trim() : '';
+                        const requestorVal = colRequestor >= 0 ? (row[colRequestor] || '').trim() : '';
+                        const requestorEmailVal = colRequestorEmail >= 0 ? (row[colRequestorEmail] || '').trim() : '';
+
+                        return {
+                            reservationId: colReservationId >= 0 ? (row[colReservationId] || '').toString().trim() : '',
+                            bookingId:     colBookingId >= 0 ? (row[colBookingId] || '').toString().trim() : '',
+                            status:        colStatus >= 0 ? (row[colStatus] || '') : '',
+                            buildingCode:  colBuilding >= 0 ? (row[colBuilding] || '').trim() : '',
+                            roomCode:      colRoom >= 0 ? (row[colRoom] || '').trim() : '',
+                            // Robust date parsing - handles string "MM/DD/YYYY", JS Date objects, and Excel serial numbers
+                            bookingDate: (() => {
+                                let raw = colDate >= 0 ? row[colDate] : '';
+                                if (!raw && raw !== 0) return '';
+                                
+                                // If it's already a Date object (common when Excel cell is date-formatted)
+                                if (raw instanceof Date && !isNaN(raw.getTime())) {
+                                    const y = raw.getFullYear();
+                                    const m = String(raw.getMonth() + 1).padStart(2, '0');
+                                    const d = String(raw.getDate()).padStart(2, '0');
+                                    return `${y}-${m}-${d}`;
+                                }
+                                
+                                // If it's a number (Excel serial date)
+                                if (typeof raw === 'number' && raw > 40000) { // rough check for recent dates
+                                    // Excel epoch is 1899-12-30
+                                    const excelEpoch = new Date(1899, 11, 30);
+                                    const jsDate = new Date(excelEpoch.getTime() + raw * 86400000);
+                                    const y = jsDate.getFullYear();
+                                    const m = String(jsDate.getMonth() + 1).padStart(2, '0');
+                                    const d = String(jsDate.getDate()).padStart(2, '0');
+                                    return `${y}-${m}-${d}`;
+                                }
+                                
+                                // String path (most common for this export)
+                                let str = raw.toString().trim();
+                                if (!str) return '';
+                                
+                                // Remove day name if present ("5/7/2026 Thu" → "5/7/2026")
+                                const datePart = str.split(' ')[0].trim();
+                                
+                                // MM/DD/YYYY or YYYY-MM-DD
+                                const parts = datePart.split(/[-/]/);
+                                if (parts.length === 3) {
+                                    let year, month, day;
+                                    if (parts[0].length === 4) {
+                                        // YYYY-MM-DD or YYYY/MM/DD
+                                        [year, month, day] = parts;
+                                    } else {
+                                        // MM/DD/YYYY
+                                        [month, day, year] = parts;
+                                    }
+                                    if (year && month && day) {
+                                        return `${year.padStart(4, '0')}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+                                    }
+                                }
+                                
+                                return '';
+                            })(),
+                            dayOfWeek:     colDay >= 0 ? (row[colDay] || '') : '',
+                            startTime:     colStart >= 0 ? (row[colStart] || '') : '',
+                            endTime:       colEnd >= 0 ? (row[colEnd] || '') : '',
+                            eventName:     colEventName >= 0 ? (row[colEventName] || '') : '',
+                            contactName:   contactNameVal,
+                            contactEmail:  contactEmailVal,
+                            requestor:     requestorVal || contactNameVal,
+                            requestorEmail: requestorEmailVal || contactEmailVal
+                        };
+                    })
+                    .filter(r => r.eventName && r.bookingDate);   // must have both
+
+                if (newRows.length === 0) {
+                    showToast('Parsed the file but found 0 rows with both Event Name and Date. Please check the column headers.', 'warning');
+                    console.warn('Header detection failed. Headers found:', headers);
+                    return;
+                }
+                
+                // Warn if many rows were dropped (likely bad dates)
+                const droppedCount = json.length - 1 - newRows.length;
+                if (droppedCount > 5) {
+                    showToast(`Note: ${droppedCount} rows were skipped (possibly due to missing Event Name or unparseable dates).`, 'warning');
+                }
+
+                let res = { added: 0, updated: 0, flagged: 0, skipped: 0 };
+                try {
+                    res = mergeNewXLSRows(newRows);
+                } catch (err) {
+                    console.error('Error during mergeNewXLSRows:', err);
+                    showToast('Error processing the file. Some data may be outdated. Try clearing old data if problems persist.', 'error');
+                    // Still try to add new rows even if merge partially failed
+                }
+                applyFilters();
+                updateStats();
+
+                let m = `${res.added} new events added.`;
+                if (res.updated > 0) m += ` ${res.updated} existing events updated.`;
+                if (res.flagged > 0) m += ` ${res.flagged} flagged due to changes.`;
+                if (res.skipped > 0) m += ` ${res.skipped} unchanged (skipped).`;
+                showToast(m);
+
+            } catch(e) {
+                console.error(e);
+                showToast('Error processing XLS file: ' + e.message, 'warning');
+            }
+        }
+
+        function exportCurrentViewCSV() {
+            let csv = 'Event Name,Date,Start,End,Rooms,Organizer,Email,Status,Flag Reason,Reservation IDs\n';
+            const filtered = masterEvents.filter(ev => {
+                if (currentFilter==='pending') return !ev.completed && !ev.flagged;
+                if (currentFilter==='completed') return ev.completed;
+                if (currentFilter==='flagged') return ev.flagged;
+                return true;
+            }).filter(ev => {
+                const t = currentSearch.toLowerCase();
+                if(!t) return true;
+                return (ev.reservationId || '').toString().toLowerCase().includes(t) ||
+                       (ev.bookingId || '').toString().toLowerCase().includes(t) ||
+                       ev.eventName.toLowerCase().includes(t) ||
+                       (ev.requestor||'').toLowerCase().includes(t) ||
+                       (ev.rooms||[]).join(' ').toLowerCase().includes(t);
+            });
+
+            filtered.forEach(ev => {
+                const st = ev.completed ? 'Completed' : (ev.flagged ? 'Flagged' : 'Pending');
+                csv += `"${ev.eventName}","${ev.date}","${ev.startTime||''}","${ev.endTime||''}","${(ev.rooms||[]).join('; ')}","${ev.requestor||''}","${ev.requestorEmail||''}","${st}","${ev.flagReason||''}","${(ev.reservationIds||[]).join('; ')}"\n`;
+            });
+
+            const blob = new Blob([csv], {type:'text/csv'});
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = `AV_View_${currentFilter}_${new Date().toISOString().slice(0,10)}.csv`;
+            a.click();
+        }
+
+        // (fully removed old duplicate exportMasterCSV code)
+
+        // ============================================
+        // FULL BACKUP (JSON) - Complete data with children, flags, progress, etc.
+        // ============================================
+        function exportMasterHistoryJSON() {
+            if (!masterEvents.length) { showToast('Nothing to export', 'warning'); return; }
+            const dataStr = JSON.stringify(masterEvents, null, 2);
+            const blob = new Blob([dataStr], { type: 'application/json' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = `AV_FullBackup_${new Date().toISOString().slice(0,10)}.json`;
+            a.click();
+            showToast('Full JSON backup exported');
+        }
+
+        function importMasterHistoryJSON() {
+            const inp = document.createElement('input');
+            inp.type = 'file';
+            inp.accept = '.json,application/json';
+            inp.onchange = e => {
+                const f = e.target.files[0];
+                if (!f) return;
+                const r = new FileReader();
+                r.onload = ev => {
+                    try {
+                        let imported = JSON.parse(ev.target.result);
+                        if (!Array.isArray(imported)) throw new Error('Invalid JSON structure');
+
+                        // Clean up old progress data from previous versions
+                        imported.forEach(ev => {
+                            if (ev.progress !== undefined) delete ev.progress;
+                            if (ev.children && Array.isArray(ev.children)) {
+                                ev.children.forEach(child => {
+                                    if (child.progress !== undefined) delete child.progress;
+                                });
+                            }
+                        });
+
+                        if (confirm(`Replace current data with ${imported.length} events from JSON backup?`)) {
+                            masterEvents = imported;
+                            saveToLocalStorage();
+                            applyFilters();
+                            updateStats();
+                            showToast(`Restored ${imported.length} events from backup (old progress data ignored)`);
+                        }
+                    } catch(err) {
+                        showToast('Import failed: ' + err.message, 'warning');
+                    }
+                };
+                r.readAsText(f);
+            };
+            inp.click();
+        }
+
+        // ============================================
+        // HUMAN READABLE CSV (flattened per booking)
+        // ============================================
+        function exportMasterCSV() {
+            if (!masterEvents.length) { showToast('Nothing to export', 'warning'); return; }
+
+            let csv = 'ReservationID,Date,StartTime,EndTime,BookingID,Room,EventName,Organizer,Status,Flagged,FlagReason,Completed\n';
+
+            masterEvents.forEach(ev => {
+                if (ev.children && ev.children.length > 0) {
+                    ev.children.forEach(child => {
+                        csv += `"${ev.reservationIds?.[0] || ''}","${child.date || ev.date}","${child.startTime || ''}","${child.endTime || ''}","${child.bookingId || ''}","${child.room || ''}","${ev.eventName}","${ev.requestor || ''}","${child.status || ev.eventStatus || ''}","${child.flagged ? 'Yes' : 'No'}","${child.flagLabel || child.flagReason || ''}","${ev.completed ? 'Yes' : 'No'}"\n`;
+                    });
+                } else {
+                    // Fallback for old structure without children
+                    csv += `"${ev.reservationIds?.[0] || ''}","${ev.date}","${ev.startTime || ''}","${ev.endTime || ''}","${ev.bookingId || ''}","${(ev.rooms || []).join('; ')}","${ev.eventName}","${ev.requestor || ''}","${ev.eventStatus || ''}","${ev.flagged ? 'Yes' : 'No'}","${ev.flagReason || ''}","${ev.completed ? 'Yes' : 'No'}"\n`;
+                }
+            });
+
+            const blob = new Blob([csv], { type: 'text/csv' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = `AV_HumanReadable_${new Date().toISOString().slice(0,10)}.csv`;
+            a.click();
+            showToast('Human-readable CSV exported');
+        }
+
+        // Cleanup: removed duplicate/broken init code
+
+        function downloadChildICS(globalIdx, childIdx, btn) {
+            const ev = masterEvents[globalIdx];
+            if (!ev || !ev.children || !ev.children[childIdx]) return;
+            const child = ev.children[childIdx];
+
+            const tempEv = {
+                ...ev,
+                date: child.bookingDate || child.date || ev.date,
+                startTime: child.startTime || '09:00',
+                endTime: child.endTime || '17:00',
+                rooms: child.roomCode ? [child.roomCode] : (ev.rooms || []),
+                eventName: child.eventName || ev.eventName,
+                reservationIds: ev.reservationIds || [ev.reservationId]
+            };
+
+            // Call the core ICS generation but pass a flag or reuse logic
+            // For simplicity, we duplicate the minimal ICS creation here
+            try {
+                const startTimeStr = tempEv.startTime || '09:00';
+                const endTimeStr = tempEv.endTime || '17:00';
+
+                function formatDateTimeLocal(dateStr, timeStr) {
+                    const isoMatch = dateStr.toString().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+                    let d;
+                    if (isoMatch) {
+                        d = new Date(parseInt(isoMatch[1],10), parseInt(isoMatch[2],10)-1, parseInt(isoMatch[3],10));
+                    } else {
+                        d = new Date(dateStr);
+                    }
+                    if (isNaN(d.getTime())) d = new Date();
+
+                    const [timePart, ampm] = timeStr.toUpperCase().split(/\s+/);
+                    let [h, m] = (timePart || '9:00').split(':').map(Number);
+                    if (ampm === 'PM' && h < 12) h += 12;
+                    if (ampm === 'AM' && h === 12) h = 0;
+                    if (isNaN(h)) h = 9;
+                    if (isNaN(m)) m = 0;
+
+                    const pad = n => String(n).padStart(2, '0');
+                    return `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}T${pad(h)}${pad(m)}00`;
+                }
+
+                const dtstart = formatDateTimeLocal(tempEv.date, startTimeStr);
+                const dtend = formatDateTimeLocal(tempEv.date, endTimeStr);
+
+                const summary = tempEv.campus 
+                    ? `${tempEv.campus} - AV Support - ${tempEv.eventName}` 
+                    : `AV Support - ${tempEv.eventName}`;
+                const location = (tempEv.rooms && tempEv.rooms.length) ? tempEv.rooms.join(', ') : 'Conference Center';
+                const resIds = (tempEv.reservationIds || []).join(', ');
+                const description = `Reservation ID(s): ${resIds}\\n${tempEv.requestor || ''}`;
+
+                const icsContent = [
+                    'BEGIN:VCALENDAR',
+                    'VERSION:2.0',
+                    'PRODID:-//AV Event Planner//ICS//EN',
+                    'CALSCALE:GREGORIAN',
+                    'METHOD:PUBLISH',
+                    'BEGIN:VEVENT',
+                    `UID:av-child-${Date.now()}@av-event-planner.app`,
+                    `DTSTAMP:${new Date().toISOString().replace(/[-:]/g, '').split('.')[0]}Z`,
+                    `DTSTART:${dtstart}`,
+                    `DTEND:${dtend}`,
+                    `SUMMARY:${summary}`,
+                    `DESCRIPTION:${description}`,
+                    `LOCATION:${location}`,
+                    'STATUS:TENTATIVE',
+                    'X-MICROSOFT-CDO-BUSYSTATUS:TENTATIVE',
+                    'CATEGORIES:Event',
+                    'TRANSP:OPAQUE',
+                    'END:VEVENT',
+                    'END:VCALENDAR'
+                ].join('\r\n');
+
+                const blob = new Blob([icsContent], { type: 'text/calendar;charset=utf-8' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `AV_Support_${(tempEv.eventName || 'Event').replace(/[^a-z0-9]/gi, '_')}.ics`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+
+                if (btn) {
+                    const original = btn.innerHTML;
+                    btn.innerHTML = `<i class="fa-solid fa-check"></i>`;
+                    setTimeout(() => { if (btn && btn.parentNode) btn.innerHTML = original; }, 1500);
+                }
+            } catch (e) {
+                console.error('Child ICS error', e);
+                alert('Could not generate ICS for this booking.');
+            }
+        }
+
+        // sendEmail (unified function) is used for both parent and child emails
+
+        // Generate ICS for a specific Date/Time group (one button per group)
+        function downloadGroupICS(globalIdx, groupDate, groupStart, groupEnd, btn) {
+            const ev = masterEvents[globalIdx];
+            if (!ev || !ev.children) return;
+
+            // Find all children that match this exact date + time
+            const groupChildren = ev.children.filter(c => {
+                const d = (c.date || c.bookingDate || '').toString();
+                const s = (c.startTime || '').toString().trim();
+                const e = (c.endTime || '').toString().trim();
+                return d === groupDate && s === groupStart && e === groupEnd;
+            });
+
+            if (groupChildren.length === 0) return;
+
+            // Collect all rooms for this group
+            const allRooms = [...new Set(groupChildren.map(c => c.roomCode).filter(Boolean))];
+            const locationStr = allRooms.length ? allRooms.join(', ') : 'Conference Center';
+
+            // Use the first child's time for DTSTART/DTEND (they should all be the same in the group)
+            const startTimeStr = groupStart || '09:00';
+            const endTimeStr = groupEnd || '17:00';
+            const dateStr = groupDate;
+
+            try {
+                function formatDateTimeLocal(dateStr, timeStr) {
+                    const isoMatch = dateStr.toString().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+                    let d;
+                    if (isoMatch) {
+                        d = new Date(parseInt(isoMatch[1],10), parseInt(isoMatch[2],10)-1, parseInt(isoMatch[3],10));
+                    } else {
+                        d = new Date(dateStr);
+                    }
+                    if (isNaN(d.getTime())) d = new Date();
+
+                    const [timePart, ampm] = timeStr.toUpperCase().split(/\s+/);
+                    let [h, m] = (timePart || '9:00').split(':').map(Number);
+                    if (ampm === 'PM' && h < 12) h += 12;
+                    if (ampm === 'AM' && h === 12) h = 0;
+                    if (isNaN(h)) h = 9;
+                    if (isNaN(m)) m = 0;
+
+                    const pad = n => String(n).padStart(2, '0');
+                    return `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}T${pad(h)}${pad(m)}00`;
+                }
+
+                const dtstart = formatDateTimeLocal(dateStr, startTimeStr);
+                const dtend = formatDateTimeLocal(dateStr, endTimeStr);
+
+                const campusPrefix = ev.campus ? `${ev.campus} - ` : '';
+                const summary = `${campusPrefix}AV Support - ${ev.eventName}`;
+                const resIds = (ev.reservationIds || [ev.reservationId]).join(', ');
+                const description = `Reservation ID(s): ${resIds}\\n${ev.requestor || ''}`;
+
+                const now = new Date();
+                const dtstamp = `${now.getFullYear()}${(now.getMonth()+1).toString().padStart(2,'0')}${now.getDate().toString().padStart(2,'0')}T${now.getHours().toString().padStart(2,'0')}${now.getMinutes().toString().padStart(2,'0')}00`;
+
+                const icsLinesGroup = [
+                    'BEGIN:VCALENDAR',
+                    'VERSION:2.0',
+                    'PRODID:-//AV Event Planner//ICS//EN',
+                    'CALSCALE:GREGORIAN',
+                    'METHOD:PUBLISH',
+                    'BEGIN:VEVENT',
+                    `UID:av-group-${ev.id || 'unknown'}-${groupDate.replace(/-/g, '')}@av-event-planner.app`,
+                    `DTSTAMP:${dtstamp}`,
+                    `DTSTART:${dtstart}`,
+                    `DTEND:${dtend}`,
+                    `SUMMARY:${summary}`,
+                    `DESCRIPTION:${description}`,
+                    `LOCATION:${locationStr}`,
+                    'STATUS:TENTATIVE',
+                    'X-MICROSOFT-CDO-BUSYSTATUS:TENTATIVE',
+                    'CATEGORIES:Event',
+                    'TRANSP:OPAQUE'
+                ];
+
+                // Clean ICS - no attendees, no organizer (best for shared calendar import)
+
+                icsLinesGroup.push('BEGIN:VALARM');
+                icsLinesGroup.push('ACTION:DISPLAY');
+                icsLinesGroup.push('DESCRIPTION:AV Support Reminder - 30 minutes before');
+                icsLinesGroup.push('TRIGGER:-PT30M');
+                icsLinesGroup.push('END:VALARM');
+                icsLinesGroup.push('END:VEVENT');
+                icsLinesGroup.push('END:VCALENDAR');
+
+                const icsContent = icsLinesGroup.join('\r\n');
+
+                const blob = new Blob([icsContent], { type: 'text/calendar;charset=utf-8' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `AV_Support_${(ev.eventName || 'Event').replace(/[^a-z0-9]/gi, '_')}_${groupDate.replace(/-/g,'')}.ics`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+
+                if (btn) {
+                    const original = btn.innerHTML;
+                    btn.innerHTML = `<i class="fa-solid fa-check"></i> Downloaded`;
+                    setTimeout(() => { if (btn && btn.parentNode) btn.innerHTML = original; }, 1500);
+                }
+            } catch (e) {
+                console.error('Group ICS error', e);
+                alert('Could not generate ICS for this date/time group.');
+            }
+        }
+
+        function copyNoteToClipboard(globalIdx, btn) {
+            const ev = masterEvents[globalIdx];
+            let text = appSettings.ticketNoteTemplate || 'Event added to shared calendar and emailed organizer.\n\nClosing ticket.';
+            if (ev) {
+                const organizerName = getFirstName(getOrganizerName(ev));
+                text = text.replace(/\{\{eventName\}\}/g, ev.eventName || '');
+                text = text.replace(/\{\{date\}\}/g, ev.date || '');
+                text = text.replace(/\{\{startTime\}\}/g, ev.startTime || '');
+                text = text.replace(/\{\{endTime\}\}/g, ev.endTime || '');
+                text = text.replace(/\{\{rooms\}\}/g, (ev.rooms || []).join(', '));
+                text = text.replace(/\{\{organizer\}\}/g, organizerName);
+                text = text.replace(/\{\{location\}\}/g, ev.campus || '');
+            }
+            
+            navigator.clipboard.writeText(text).then(() => {
+                const originalHTML = btn.innerHTML;
+                btn.innerHTML = `<i class="fa-solid fa-check fa-xs text-emerald-600"></i>`;
+                btn.disabled = true;
+                
+                showToast('Note copied to clipboard');
+                
+                setTimeout(() => {
+                    if (btn && btn.parentNode) {
+                        btn.innerHTML = originalHTML;
+                        btn.disabled = false;
+                    }
+                }, 1800);
+            }).catch(() => {
+                // Fallback for older browsers
+                const textarea = document.createElement('textarea');
+                textarea.value = text;
+                document.body.appendChild(textarea);
+                textarea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textarea);
+                showToast('Note copied to clipboard');
+            });
+        }
+
+        function clearAllData() {
+            if (!confirm('Clear ALL data?')) return;
+            masterEvents = [];
+            localStorage.removeItem('av_event_planner_v1');
+            document.getElementById('events-tbody').innerHTML = '';
+            updateStats();
+            showToast('All data cleared');
+        }
+
+        window.onload = initializeApp;
+    </script>
+</body>
+</html>
+
+<!-- Settings Modal (Full Version) -->
+<div id="settings-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[200]">
+    <div class="bg-white rounded-3xl shadow-xl w-full max-w-3xl mx-4 max-h-[92vh] flex flex-col">
+        <div class="px-6 py-4 border-b flex items-center justify-between">
+            <div>
+                <h3 class="font-semibold text-lg">Setup</h3>
+            </div>
+            <button onclick="closeSettingsModal()" class="text-2xl leading-none text-slate-400 hover:text-slate-600">&times;</button>
+        </div>
+
+        <div class="flex-1 overflow-auto p-6 space-y-6 text-sm">
+            <!-- App Title -->
+            <div>
+                <label class="font-semibold">App Title</label>
+                <input id="settings-app-title" placeholder="Event Planner" class="mt-1 w-full px-3 py-2 border rounded-2xl text-sm">
+                <p class="text-[10px] text-slate-500 mt-0.5">Changes the header and browser tab title</p>
+            </div>
+
+            <!-- Technicians -->
+            <div>
+                <div class="flex justify-between items-center mb-2">
+                    <label class="font-semibold">Technicians</label>
+                    <button onclick="showAddTechForm()" class="text-xs px-3 py-1 bg-blue-600 text-white rounded-xl">+ Add</button>
+                </div>
+                <div id="tech-list-container" class="hidden border rounded-2xl p-2 max-h-32 overflow-auto text-sm"></div>
+                <div id="add-tech-form" class="hidden mt-2 p-3 bg-slate-50 rounded-2xl">
+                    <div class="grid grid-cols-2 gap-2">
+                        <input id="new-tech-firstname" placeholder="First Name" class="px-3 py-2 border rounded-xl text-sm">
+                        <input id="new-tech-email" placeholder="email@org.edu" type="email" class="px-3 py-2 border rounded-xl text-sm">
+                    </div>
+                    <div class="mt-2 flex gap-2">
+                        <button onclick="addTechnician()" class="px-4 py-1 bg-emerald-600 text-white text-xs rounded-xl">Add</button>
+                        <button onclick="hideAddTechForm()" class="px-4 py-1 text-xs">Cancel</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- CC -->
+            <div>
+                <label class="font-semibold">CC Recipients (comma separated)</label>
+                <input id="settings-cc-list" placeholder="email1@org.edu, email2@org.edu" class="mt-1 w-full px-3 py-2 border rounded-2xl text-sm">
+            </div>
+
+            <!-- Locations -->
+            <div>
+                <label class="font-semibold">Locations / Campus Tags</label>
+                <div class="flex gap-2 mt-1 items-center">
+                    <input id="new-location-input" placeholder="e.g. Training Center or North Campus" class="flex-1 px-3 py-2 border rounded-2xl text-sm">
+                    <input id="new-location-color" type="color" value="#6366f1" class="w-12 h-10 p-1 border rounded-2xl cursor-pointer" title="Choose color for this location">
+                    <button onclick="addLocation()" class="px-4 py-2 bg-blue-600 text-white text-xs rounded-2xl">Add</button>
+                </div>
+                <div id="locations-list-container" class="flex flex-wrap gap-2 mt-2 p-3 border rounded-2xl min-h-[40px]"></div>
+            </div>
+
+            <!-- Room Rules -->
+            <div>
+                <label class="font-semibold">Room Rules (Auto-assign location)</label>
+                <div class="text-xs text-slate-500 mb-1">If room contains this text → use selected location</div>
+                <div class="flex gap-2">
+                    <input id="new-rule-contains" placeholder="text to look for in room code" class="flex-1 px-3 py-2 border rounded-2xl text-sm">
+                    <select id="new-rule-location" class="px-3 py-2 border rounded-2xl text-sm"></select>
+                    <button onclick="addRoomRule()" class="px-4 py-2 bg-blue-600 text-white text-xs rounded-2xl">Add Rule</button>
+                </div>
+                <div id="room-rules-list" class="hidden mt-2 text-sm border rounded-2xl p-2 max-h-24 overflow-auto"></div>
+            </div>
+
+            <!-- Templates -->
+            <div>
+                <div class="mb-4">
+                    <div class="flex items-center justify-between mb-1">
+                        <label class="font-semibold">Email Body Template</label>
+                        <button onclick="openTemplateEditor('email')" class="text-xs px-3 py-1 border rounded-xl hover:bg-slate-100">Edit</button>
+                    </div>
+                    <textarea id="settings-email-template" rows="3" class="w-full px-3 py-2 border rounded-2xl text-sm font-mono bg-slate-50" readonly></textarea>
+                </div>
+                <div>
+                    <div class="flex items-center justify-between mb-1">
+                        <label class="font-semibold">Clipboard Note Template</label>
+                        <button onclick="openTemplateEditor('note')" class="text-xs px-3 py-1 border rounded-xl hover:bg-slate-100">Edit</button>
+                    </div>
+                    <textarea id="settings-note-template" rows="3" class="w-full px-3 py-2 border rounded-2xl text-sm bg-slate-50" readonly></textarea>
+                </div>
+            </div>
+        </div>
+
+        <div class="px-6 py-4 border-t flex justify-between bg-slate-50 rounded-b-3xl">
+            <div class="flex gap-2">
+                <button onclick="exportSettings()" class="px-4 py-2 text-xs border rounded-2xl flex items-center gap-2">
+                    <i class="fa-solid fa-download fa-sm"></i> Export Settings
+                </button>
+                <button onclick="importSettings()" class="px-4 py-2 text-xs border rounded-2xl flex items-center gap-2">
+                    <i class="fa-solid fa-upload fa-sm"></i> Import Settings
+                </button>
+                <button onclick="clearEventData()" class="px-4 py-2 text-xs border border-red-300 text-red-600 rounded-2xl flex items-center gap-2 hover:bg-red-50">
+                    <i class="fa-solid fa-trash fa-sm"></i> Clear Event Data
+                </button>
+                <button onclick="clearSetupData()" class="px-4 py-2 text-xs border border-red-300 text-red-600 rounded-2xl flex items-center gap-2 hover:bg-red-50">
+                    <i class="fa-solid fa-trash fa-sm"></i> Clear Setup Data
+                </button>
+            </div>
+            <button onclick="saveSettingsFromModal()" class="px-6 py-2 bg-black text-white text-sm font-semibold rounded-2xl">Save Changes</button>
+        </div>
+    </div>
+</div>
+
+<!-- Template Editor Modal -->
+<div id="template-editor-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[300]">
+    <div class="bg-white rounded-3xl shadow-xl w-full max-w-2xl mx-4">
+        <div class="px-6 py-4 border-b flex items-center justify-between">
+            <h3 id="template-editor-title" class="font-semibold text-lg"></h3>
+            <button onclick="closeTemplateEditor()" class="text-2xl leading-none text-slate-400 hover:text-slate-600">&times;</button>
+        </div>
+        <div class="p-6">
+            <div class="mb-3 text-xs bg-slate-50 border border-slate-200 rounded-2xl p-3 text-slate-600">
+                <strong>Available variables:</strong><br>
+                <code class="text-blue-600">{{eventName}}</code> Event name &nbsp;
+                <code class="text-blue-600">{{date}}</code> Date &nbsp;
+                <code class="text-blue-600">{{startTime}}</code> Start time &nbsp;
+                <code class="text-blue-600">{{endTime}}</code> End time &nbsp;
+                <code class="text-blue-600">{{rooms}}</code> Rooms &nbsp;
+                <code class="text-blue-600">{{organizer}}</code> Organizer &nbsp;
+                <code class="text-blue-600">{{location}}</code> Campus &nbsp;
+                <code class="text-blue-600">{{bookingList}}</code> List of all bookings (great for parent/group emails)
+            </div>
+            <textarea id="template-editor-textarea" class="w-full h-56 px-4 py-3 border rounded-2xl text-sm font-mono"></textarea>
+        </div>
+        <div class="px-6 py-4 border-t flex justify-end gap-3 bg-slate-50 rounded-b-3xl">
+            <button onclick="closeTemplateEditor()" class="px-5 py-2 text-sm">Cancel</button>
+            <button onclick="saveTemplateEdit()" class="px-6 py-2 bg-black text-white text-sm font-semibold rounded-2xl">Save Changes</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    // Full Settings System
+    let appSettings = {};
+
+    function loadSettings() {
+        const saved = localStorage.getItem('av_event_planner_settings_v1');
+        if (saved) {
+            try { appSettings = JSON.parse(saved); } catch(e) { createDefaultSettings(); }
+        } else {
+            createDefaultSettings();
+        }
+        if (!appSettings.technicians) appSettings.technicians = [];
+        if (!appSettings.locations) appSettings.locations = [];
+        if (!appSettings.roomRules) appSettings.roomRules = [];
+        if (!appSettings.ccList) appSettings.ccList = '';
+        if (!appSettings.appTitle) appSettings.appTitle = 'Event Planner';
+
+        // Convert old string-based locations to new object format (with default color)
+        if (appSettings.locations && appSettings.locations.length > 0 && typeof appSettings.locations[0] === 'string') {
+            appSettings.locations = appSettings.locations.map(name => ({
+                name: name,
+                color: '#6366f1'
+            }));
+            saveSettings();
+        }
+        if (!appSettings.emailBodyTemplate) appSettings.emailBodyTemplate = 'We have added your event "{{eventName}}" to our AV support calendar.\n\nWe will have someone from the team meet you at least 15-30 minutes prior to your event start time.\n\nIf you have any questions or need additional technology or setup support, please let us know.';
+        if (!appSettings.ticketNoteTemplate) appSettings.ticketNoteTemplate = 'Event added to shared calendar and emailed organizer.\n\nClosing ticket.';
+    }
+
+    function createDefaultSettings() {
+        appSettings = {
+            currentTechnician: '',
+            technicians: [],
+            ccList: '',
+            locations: [],
+            roomRules: [],
+            appTitle: 'Event Planner',
+            emailBodyTemplate: '',
+            ticketNoteTemplate: ''
+        };
+        saveSettings();
+    }
+
+    function saveSettings() {
+        localStorage.setItem('av_event_planner_settings_v1', JSON.stringify(appSettings));
+    }
+
+    function getCurrentTechnician() {
+        return (appSettings.technicians || []).find(t => t.firstName === appSettings.currentTechnician) || null;
+    }
+
+    function getCCListForEvent(ev) {
+        let list = [];
+        if (appSettings.ccList) list = appSettings.ccList.split(',').map(s => s.trim()).filter(Boolean);
+        const seen = new Set();
+        list = list.filter(e => { const k = e.toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; });
+        const tech = getCurrentTechnician();
+        if (tech && tech.email) list = list.filter(e => e.toLowerCase() !== tech.email.toLowerCase());
+        return list;
+    }
+
+    // Helper to build a nice booking list for parent/group emails
+    function getBookingList(ev) {
+        if (!ev) return '';
+
+        let bookings = [];
+
+        // Case 1: Has children array (most common)
+        if (ev.children && ev.children.length > 0) {
+            bookings = ev.children.map(child => {
+                const date = formatDateNice(child.bookingDate || child.date);
+                const time = (child.startTime && child.endTime) 
+                    ? `${child.startTime} – ${child.endTime}` 
+                    : (child.startTime || '');
+                const room = child.roomCode || '';
+                return `• ${date} ${time} in ${room}`.trim();
+            });
+        } 
+        // Case 2: Has dateGroups (older structure)
+        else if (ev.dateGroups && ev.dateGroups.length > 0) {
+            bookings = ev.dateGroups.flatMap(group => {
+                return (group.children || []).map(({ child }) => {
+                    const date = formatDateNice(child.bookingDate || child.date);
+                    const time = (child.startTime && child.endTime) 
+                        ? `${child.startTime} – ${child.endTime}` 
+                        : (child.startTime || '');
+                    const room = child.roomCode || '';
+                    return `• ${date} ${time} in ${room}`.trim();
+                });
+            });
+        }
+
+        return bookings.join('\n');
+    }
+
+    function buildEmailBody(ev) {
+        let t = appSettings.emailBodyTemplate || '';
+        if (!t) return '';
+
+        const rooms = (ev.rooms && ev.rooms.length > 0) 
+            ? ev.rooms.join(', ') 
+            : (ev.children ? ev.children.map(c => c.roomCode).filter(Boolean).join(', ') : '');
+
+        const bookingList = getBookingList(ev);
+
+        t = t.replace(/\{\{eventName\}\}/g, ev.eventName || '');
+        t = t.replace(/\{\{date\}\}/g, ev.date || '');
+        t = t.replace(/\{\{startTime\}\}/g, ev.startTime || '');
+        t = t.replace(/\{\{endTime\}\}/g, ev.endTime || '');
+        t = t.replace(/\{\{rooms\}\}/g, rooms || '');
+        
+        const organizerName = getFirstName(getOrganizerName(ev));
+        t = t.replace(/\{\{organizer\}\}/g, organizerName || '');
+        
+        t = t.replace(/\{\{location\}\}/g, ev.campus || ev.location || '');
+        t = t.replace(/\{\{bookingList\}\}/g, bookingList || '');
+
+        return t;
+    }
+
+    function openSettingsModal() {
+        const m = document.getElementById('settings-modal');
+        if (!m) return;
+        m.classList.remove('hidden'); m.classList.add('flex');
+
+        document.getElementById('settings-cc-list').value = appSettings.ccList || '';
+        document.getElementById('settings-app-title').value = appSettings.appTitle || 'Event Planner';
+        document.getElementById('settings-email-template').value = appSettings.emailBodyTemplate || '';
+        document.getElementById('settings-note-template').value = appSettings.ticketNoteTemplate || '';
+
+        renderTechList();
+        renderLocationsList();
+        renderRoomRulesList();
+        populateRuleLocationSelect();
+    }
+
+    function closeSettingsModal() {
+        const m = document.getElementById('settings-modal');
+        if (m) { m.classList.remove('flex'); m.classList.add('hidden'); }
+    }
+
+    function renderTechList() {
+        const c = document.getElementById('tech-list-container');
+        if (!c) return;
+        c.innerHTML = '';
+        if (!appSettings.technicians || appSettings.technicians.length === 0) {
+            c.classList.add('hidden');
+            document.getElementById('add-tech-form').classList.remove('hidden');
+            return;
+        }
+        c.classList.remove('hidden');
+        (appSettings.technicians || []).forEach((t, i) => {
+            const d = document.createElement('div');
+            d.className = `flex justify-between px-3 py-1 text-sm rounded ${appSettings.currentTechnician === t.firstName ? 'bg-blue-50' : ''}`;
+            d.innerHTML = `<div><span class="font-medium">${t.firstName}</span> <span class="text-xs text-slate-500">${t.email}</span></div>
+                <div>${appSettings.currentTechnician === t.firstName ? '<span class="text-[10px] bg-blue-600 text-white px-1 rounded">cur</span>' : ''}<button onclick="deleteTechnician(${i})" class="text-red-500 px-1">×</button></div>`;
+            c.appendChild(d);
+        });
+    }
+
+    function showAddTechForm() { document.getElementById('add-tech-form').classList.remove('hidden'); }
+    function hideAddTechForm() {
+        document.getElementById('add-tech-form').classList.add('hidden');
+        document.getElementById('new-tech-firstname').value = '';
+        document.getElementById('new-tech-email').value = '';
+    }
+
+    function addTechnician() {
+        const fn = document.getElementById('new-tech-firstname').value.trim();
+        const em = document.getElementById('new-tech-email').value.trim();
+        if (!fn || !em) return alert('First name and email required');
+        if (!appSettings.technicians) appSettings.technicians = [];
+        if (appSettings.technicians.some(x => x.firstName.toLowerCase() === fn.toLowerCase())) return alert('Duplicate name');
+        appSettings.technicians.push({firstName: fn, email: em});
+        saveSettings();
+        renderTechList();
+        populateTechDropdown();
+        hideAddTechForm();
+    }
+
+    function deleteTechnician(i) {
+        if (!confirm('Delete technician?')) return;
+        const wasCurrent = appSettings.technicians[i].firstName === appSettings.currentTechnician;
+        appSettings.technicians.splice(i, 1);
+        if (wasCurrent) appSettings.currentTechnician = appSettings.technicians[0] ? appSettings.technicians[0].firstName : '';
+        saveSettings();
+        renderTechList();
+        populateTechDropdown();
+    }
+
+    function renderLocationsList() {
+        const c = document.getElementById('locations-list-container');
+        if (!c) return;
+        c.innerHTML = '';
+
+        (appSettings.locations || []).forEach((loc, i) => {
+            // Support both old string format and new object format
+            const name = typeof loc === 'string' ? loc : loc.name;
+            const color = typeof loc === 'string' ? '#6366f1' : (loc.color || '#6366f1');
+
+            const p = document.createElement('div');
+            p.className = `px-3 py-1 text-xs rounded-full flex items-center gap-2 cursor-pointer border`;
+            p.style.backgroundColor = color + '20'; // light background
+            p.style.borderColor = color;
+            p.style.color = color;
+
+            p.innerHTML = `
+                <span class="font-medium">${name}</span>
+                <input type="color" value="${color}" class="w-5 h-5 p-0 border-0 bg-transparent cursor-pointer" 
+                       onchange="changeLocationColor(${i}, this.value)">
+                <button onclick="event.stopImmediatePropagation(); deleteLocation(${i})" class="text-red-400 hover:text-red-600">×</button>
+            `;
+
+            // Allow clicking the pill to change color too
+            p.onclick = () => {
+                const colorInput = p.querySelector('input[type="color"]');
+                if (colorInput) colorInput.click();
+            };
+
+            c.appendChild(p);
+        });
+    }
+
+    function changeLocationColor(index, newColor) {
+        if (!appSettings.locations || !appSettings.locations[index]) return;
+
+        const loc = appSettings.locations[index];
+        if (typeof loc === 'string') {
+            // Convert old format to new
+            appSettings.locations[index] = { name: loc, color: newColor };
+        } else {
+            loc.color = newColor;
+        }
+
+        saveSettings();
+        renderLocationsList();
+        // Re-render table so badges update
+        if (typeof applyFilters === 'function') applyFilters();
+    }
+
+    function addLocation() {
+        const name = document.getElementById('new-location-input').value.trim();
+        const colorInput = document.getElementById('new-location-color');
+        const color = colorInput ? colorInput.value : '#6366f1';
+
+        if (!name) return;
+        if (!appSettings.locations) appSettings.locations = [];
+
+        // Check for duplicate name (handle both string and object formats during transition)
+        const exists = appSettings.locations.some(l => {
+            const locName = typeof l === 'string' ? l : l.name;
+            return locName.toLowerCase() === name.toLowerCase();
+        });
+        if (exists) return;
+
+        appSettings.locations.push({ name: name, color: color });
+        saveSettings();
+        renderLocationsList();
+        populateRuleLocationSelect();
+        document.getElementById('new-location-input').value = '';
+        if (colorInput) colorInput.value = '#6366f1';
+    }
+
+    function deleteLocation(i) {
+        if (!confirm('Remove location?')) return;
+        appSettings.locations.splice(i, 1);
+        saveSettings();
+        renderLocationsList();
+        populateRuleLocationSelect();
+    }
+
+    function populateRuleLocationSelect() {
+        const s = document.getElementById('new-rule-location');
+        if (!s) return;
+        const currentVal = s.value;
+        s.innerHTML = '';
+
+        (appSettings.locations || []).forEach(loc => {
+            const name = typeof loc === 'string' ? loc : loc.name;
+            const o = document.createElement('option');
+            o.value = name;
+            o.textContent = name;
+            s.appendChild(o);
+        });
+
+        // Try to restore previous selection
+        if (currentVal) {
+            const exists = Array.from(s.options).some(opt => opt.value === currentVal);
+            if (exists) s.value = currentVal;
+        }
+    }
+
+    function renderRoomRulesList() {
+        const c = document.getElementById('room-rules-list');
+        if (!c) return;
+        c.innerHTML = '';
+        if (!appSettings.roomRules || appSettings.roomRules.length === 0) {
+            c.classList.add('hidden');
+            return;
+        }
+        c.classList.remove('hidden');
+        (appSettings.roomRules || []).forEach((r, i) => {
+            const d = document.createElement('div');
+            d.className = 'flex justify-between text-sm px-2 py-0.5';
+            d.innerHTML = `<span>"${r.contains}" → <strong>${r.location}</strong></span> <button onclick="deleteRoomRule(${i})" class="text-red-500">×</button>`;
+            c.appendChild(d);
+        });
+    }
+
+    function addRoomRule() {
+        const contains = document.getElementById('new-rule-contains').value.trim();
+        const location = document.getElementById('new-rule-location').value;
+        if (!contains || !location) return alert('Enter text and choose a location');
+        if (!appSettings.roomRules) appSettings.roomRules = [];
+        appSettings.roomRules.push({contains, location});
+        saveSettings();
+        renderRoomRulesList();
+        document.getElementById('new-rule-contains').value = '';
+    }
+
+    function deleteRoomRule(i) {
+        if (!confirm('Delete rule?')) return;
+        appSettings.roomRules.splice(i, 1);
+        saveSettings();
+        renderRoomRulesList();
+    }
+
+    function populateTechDropdown() {
+        const s = document.getElementById('tech-select');
+        if (!s) return;
+        s.innerHTML = '';
+        (appSettings.technicians || []).forEach(t => {
+            const o = document.createElement('option');
+            o.value = t.firstName; o.textContent = t.firstName;
+            if (t.firstName === appSettings.currentTechnician) o.selected = true;
+            s.appendChild(o);
+        });
+        if (!s.options.length) {
+            const o = document.createElement('option'); o.textContent = '(add in Setup)'; s.appendChild(o);
+        }
+    }
+
+    function updateAppTitle() {
+        const title = appSettings.appTitle || 'Event Planner';
+        const headerTitle = document.getElementById('app-title');
+        if (headerTitle) headerTitle.textContent = title;
+        document.title = title;
+    }
+
+    function setCurrentTechnician(fn) {
+        appSettings.currentTechnician = fn || '';
+        saveSettings();
+    }
+
+    function saveSettingsFromModal() {
+        appSettings.ccList = document.getElementById('settings-cc-list').value.trim();
+        appSettings.appTitle = document.getElementById('settings-app-title').value.trim() || 'Event Planner';
+        appSettings.emailBodyTemplate = document.getElementById('settings-email-template').value.trim();
+        appSettings.ticketNoteTemplate = document.getElementById('settings-note-template').value.trim();
+        saveSettings();
+        updateAppTitle();
+        closeSettingsModal();
+        showToast('Settings saved');
+        populateTechDropdown();
+    }
+
+    function exportSettings() {
+        const t = getCurrentTechnician();
+        const name = t && t.firstName ? t.firstName.replace(/\s+/g,'') : 'user';
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(new Blob([JSON.stringify(appSettings, null, 2)], {type:'application/json'}));
+        a.download = `${name}_settings.json`;
+        a.click();
+        showToast('Settings exported');
+    }
+
+    function importSettings() {
+        const inp = document.createElement('input');
+        inp.type = 'file'; inp.accept = '.json';
+        inp.onchange = e => {
+            const f = e.target.files[0];
+            if (!f) return;
+            const r = new FileReader();
+            r.onload = ev => {
+                try {
+                    if (confirm('Replace current settings?')) {
+                        appSettings = JSON.parse(ev.target.result);
+                        if (!appSettings.roomRules) appSettings.roomRules = [];
+                        saveSettings();
+                        populateTechDropdown();
+                        if (document.getElementById('settings-modal').classList.contains('flex')) openSettingsModal();
+                        showToast('Settings imported');
+                    }
+                } catch(err) { showToast('Invalid JSON file', 'warning'); }
+            };
+            r.readAsText(f);
+        };
+        inp.click();
+    }
+
+    function applyRoomRulesToNewEvent(ev) {
+        const rules = appSettings.roomRules || [];
+        const rooms = (ev.rooms || []).concat((ev.children || []).map(c => c.roomCode || '')).filter(Boolean);
+        for (const rule of rules) {
+            if (rule.contains && rule.location && rooms.some(r => r.toString().toLowerCase().includes(rule.contains.toLowerCase()))) {
+                ev.campus = rule.location;
+                return;
+            }
+        }
+    }
+
+    let currentEditingTemplate = null;
+
+    function openTemplateEditor(type) {
+        currentEditingTemplate = type;
+        const modal = document.getElementById('template-editor-modal');
+        const title = document.getElementById('template-editor-title');
+        const ta = document.getElementById('template-editor-textarea');
+
+        if (type === 'email') {
+            title.textContent = 'Edit Email Body Template';
+            ta.value = appSettings.emailBodyTemplate || '';
+        } else {
+            title.textContent = 'Edit Clipboard Note Template';
+            ta.value = appSettings.ticketNoteTemplate || '';
+        }
+        modal.classList.remove('hidden'); modal.classList.add('flex');
+    }
+
+    function closeTemplateEditor() {
+        const modal = document.getElementById('template-editor-modal');
+        modal.classList.remove('flex'); modal.classList.add('hidden');
+    }
+
+    function saveTemplateEdit() {
+        const ta = document.getElementById('template-editor-textarea');
+        if (currentEditingTemplate === 'email') {
+            appSettings.emailBodyTemplate = ta.value.trim();
+        } else if (currentEditingTemplate === 'note') {
+            appSettings.ticketNoteTemplate = ta.value.trim();
+        }
+        saveSettings();
+        if (document.getElementById('settings-modal').classList.contains('flex')) {
+            document.getElementById('settings-email-template').value = appSettings.emailBodyTemplate || '';
+            document.getElementById('settings-note-template').value = appSettings.ticketNoteTemplate || '';
+        }
+        closeTemplateEditor();
+        showToast('Template saved');
+    }
+
+    function clearEventData() {
+        if (!confirm('Clear all event data?')) return;
+        masterEvents = [];
+        localStorage.removeItem('av_event_planner_v1');
+        document.getElementById('events-tbody').innerHTML = '';
+        updateStats();
+        showToast('Event data cleared');
+        closeSettingsModal();
+    }
+
+    function clearSetupData() {
+        if (!confirm('Clear all Setup data?')) return;
+        localStorage.removeItem('av_event_planner_settings_v1');
+        appSettings = {};
+        createDefaultSettings();
+        showToast('Setup data cleared. Reloading...');
+        setTimeout(() => location.reload(), 800);
+    }
+
+    function initializeApp() {
+        try {
+            console.log('[AV Tracker] initializeApp started');
+
+            if (typeof loadFromLocalStorage === 'function') {
+                loadFromLocalStorage();
+                console.log('[AV Tracker] After loadFromLocalStorage, masterEvents length:', masterEvents ? masterEvents.length : 0);
+            } else {
+                console.error('[AV Tracker] loadFromLocalStorage is not defined!');
+                masterEvents = [];
+            }
+
+            if (typeof loadSettings === 'function') loadSettings();
+            if (typeof updateAppTitle === 'function') updateAppTitle();
+            if (typeof populateTechDropdown === 'function') populateTechDropdown();
+
+            // ... rest of init with guards ...
+
+            const drop = document.getElementById('xls-dropzone');
+            const inp = document.getElementById('xls-file-input');
+            if (drop && inp) {
+                drop.onclick = () => inp.click();
+                inp.onchange = e => e.target.files[0] && (typeof handleNewXLSUpload === 'function' ? handleNewXLSUpload(e.target.files[0]) : null);
+                drop.ondragover = e => { e.preventDefault(); drop.classList.add('dragover'); };
+                drop.ondragleave = () => drop.classList.remove('dragover');
+                drop.ondrop = e => { e.preventDefault(); drop.classList.remove('dragover'); if (e.dataTransfer.files[0] && typeof handleNewXLSUpload === 'function') handleNewXLSUpload(e.dataTransfer.files[0]); };
+            }
+
+            const si = document.getElementById('search-input');
+            if (si) si.oninput = e => { currentSearch = e.target.value; if (typeof applyFilters === 'function') applyFilters(); };
+
+            if (typeof updateStats === 'function') updateStats();
+            if (typeof applyFilters === 'function') applyFilters();
+
+            const fa = document.getElementById('filter-all');
+            if (fa) fa.classList.add('bg-blue-600', 'text-white');
+
+            console.log('[AV Tracker] initializeApp finished.');
+
+            setTimeout(() => {
+                if (typeof openSettingsModal === 'function') openSettingsModal();
+            }, 300);
+
+        } catch (err) {
+            console.error('[AV Tracker] Critical error in initializeApp:', err);
+        }
+    }
+
+    window.onload = initializeApp;
+</script>
+
+<footer class="text-center text-xs text-slate-500 py-4 border-t">
+    Created with Grok by <a href="https://digitalviper.github.io" target="_blank" class="text-blue-600 hover:underline">digitalviper</a>
+</footer>
